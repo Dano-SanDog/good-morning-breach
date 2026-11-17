@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** Requirements and design complete. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** Requirements and design are complete; the Go/React application scaffold is in place, but product workflows are not implemented. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -91,12 +91,17 @@ This is a closed service. Every page needs a login, and there is no self sign-up
 | **admin** | Everything a user can do, plus manage users, roles, data sources, and categories, and view source status and the admin action log |
 | **user** | View the dashboard and manage their own alert settings and profile |
 
+## Development
+
+Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked client dependencies with `npm ci --ignore-scripts`, run the placeholder client with `npm run dev`, and validate it with `npm run build` and `npm test`. The Go server has no application routes yet; when started, it requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE` for a locally trusted certificate and key stored outside the repository. The private key must have mode `0600`.
+
 ## Roadmap
 
 - [x] Write requirements ([REQUIREMENTS.md](REQUIREMENTS.md))
 - [x] Research source licenses
 - [x] Design system, logo, and preview ([DESIGN.md](DESIGN.md))
-- [ ] Choose the tech stack and architecture
+- [x] Choose and pin the tech stack baseline ([ARCHITECTURE.md](ARCHITECTURE.md); proposed dependencies still need checks before integration)
+- [x] Create and audit the Go/React application scaffold
 - [ ] Build source ingestion, including license records and content rules
 - [ ] Add categorization and risk scoring
 - [ ] Add MITRE ATT&CK mapping

@@ -31,7 +31,7 @@
 | Verify (server) | `go mod verify` | Per SC-091 |
 | Lint | `go vet ./...` (server); client N/A | Client N/A because `tsc --noEmit` and React's default escaping cover the required checks |
 
-Pinned versions of PROPOSED Go and npm packages and the MITRE ATT&CK bundle version are TO BE DECIDED.
+The scaffold's Go and npm dependencies are pinned and locked; see `ARCHITECTURE.md`. Before integrating proposed packages such as pgx, OTP, or gofeed, verify their current versions and audit their resolved dependency trees. The selected MITRE ATT&CK Enterprise STIX bundle version is 20.1.
 
 ## Third-party libraries
 

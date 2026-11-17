@@ -1,0 +1,43 @@
+:root {
+  font-family: "Atkinson Hyperlegible Next", Arial, sans-serif;
+  color: #1d1a3b;
+  background: #efeef5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.app-shell {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 100vh;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+
+.brand-mark {
+  width: 72px;
+  height: 72px;
+}
+
+h1,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(24px, 5vw, 32px);
+}
+
+p {
+  color: #4e4a6b;
+  font-size: 16px;
+}

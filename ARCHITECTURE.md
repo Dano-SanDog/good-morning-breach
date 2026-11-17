@@ -1,8 +1,8 @@
 # Architecture: Good Morning Breach
 
-This file owns HOW the system is built: its components, boundaries, technology, and data flow. `REQUIREMENTS.md` owns WHAT the system does. `DESIGN.md` owns how it looks. `SECURITY.md` owns the detailed controls. Nothing is built yet.
+This file owns HOW the system is built: its components, boundaries, technology, and data flow. `REQUIREMENTS.md` owns WHAT the system does. `DESIGN.md` owns how it looks. `SECURITY.md` owns the detailed controls. A minimal application scaffold exists; no product workflows are implemented yet.
 
-Versions were checked against official sources on 2026-11-13: go.dev/doc/devel/release, github.com/gin-gonic/gin/releases, react.dev/versions, vite.dev/releases, and nodejs.org/en/about/previous-releases.
+Version pins were checked against official release and registry sources on 2026-11-16. The scaffold's Go and npm dependency trees were resolved, license-checked, and audited before being added. The npm production and full audits passed, and 44 installed packages had verified registry signatures. The Go tree passed `go mod verify` and `govulncheck ./...`; all 55 modules had recognized permissive licenses. The 94-package npm tree includes 12 optional, platform-specific Lightning CSS packages under MPL-2.0; this is acceptable for this private, non-distributed service, but must be reconsidered before distribution. The Gin tree required patched `x/net`, `quic-go`, and `x/crypto` pins to pass the vulnerability gate. Proposed packages not yet used by the scaffold still require the same checks before they are added.
 
 ## Required Architecture Inputs
 
@@ -21,27 +21,37 @@ Versions were checked against official sources on 2026-11-13: go.dev/doc/devel/r
 
 ## Stack
 
-| Technology | Version line | Justification | Status |
+| Technology | Pinned version / line | Justification | Status |
 |---|---|---|---|
-| Go | 1.27.x (1.27.4 current; supported until Go 1.29 is released) | Explicit choice: server. Includes `net/http`, `crypto`, `html/template`, `log/slog`, `net/smtp`, and `time`, which cover HTTP clients, email bodies (FR-4.12, NFR-3.4), logging, and scheduling without extra packages. | CONFIRMED |
-| Gin (`github.com/gin-gonic/gin`) | v1.12.x (minimum Go 1.24) | Explicit choice: HTTP routing and middleware for the dashboard API. | CONFIRMED |
-| React + React DOM | 19.3.x | Explicit choice: dashboard client (FR-5). | CONFIRMED |
-| Node.js | 26.x LTS (build machine only, not at runtime) | Needed to build the React client. It does not run in production. | PROPOSED: the current LTS line. |
-| Vite | 8.3.x | Builds and bundles the React client. React has no build tool of its own. | PROPOSED: the standard React build tool. |
-| TypeScript | 7.0.x | Type-checks the client and its API contracts, so mistakes in rendering untrusted data are caught at build time. | CONFIRMED (AQ-7, delegated decision) |
+| Go | [1.27.4](https://go.dev/doc/devel/release) | Explicit choice: server. Includes `net/http`, `crypto`, `html/template`, `log/slog`, `net/smtp`, and `time`, which cover HTTP clients, email bodies (FR-4.12, NFR-3.4), logging, and scheduling without extra packages. Update to supported security patches deliberately. | CONFIRMED |
+| Gin (`github.com/gin-gonic/gin`) | [v1.12.0](https://github.com/gin-gonic/gin/releases/tag/v1.12.0) (minimum Go 1.25) | Explicit choice: HTTP routing and middleware for the dashboard API. | CONFIRMED |
+| React + React DOM | [19.3.1](https://github.com/react/react/releases/tag/v19.3.1) | Explicit choice: dashboard client (FR-5). Keep both packages on the same version. | CONFIRMED |
+| React type declarations (`@types/react`, `@types/react-dom`) | [19.3.0](https://www.npmjs.com/package/@types/react/v/19.3.0) | Development-only TypeScript declarations needed to type-check React components. `@types/react-dom` requires the matching 19.3 type line. | CONFIRMED |
+| Node.js | [26.13.1](https://nodejs.org/en/download/archive/v26.13.1) LTS (build machine only, not at runtime) | Needed to build the React client. It does not run in production. | CONFIRMED |
+| Vite | [8.3.8](https://github.com/vitejs/vite/releases/tag/v8.3.8) | Builds and bundles the React client. React has no build tool of its own. | CONFIRMED |
+| TypeScript | [7.0.2](https://github.com/microsoft/TypeScript/releases/tag/v7.0.2) | Type-checks the client and its API contracts, so mistakes in rendering untrusted data are caught at build time. | CONFIRMED (AQ-7, delegated decision) |
 | PostgreSQL | 18.x (18.7 current; supported until 2030-11-14) | Stores stories, sources, accounts, settings, and records (FR-1 to FR-10). Its built-in full-text search covers keyword search (FR-5.5) without a separate search engine. | CONFIRMED (AQ-2) |
-| `github.com/jackc/pgx/v5` | v5.11.x (minimum Go 1.25) | PostgreSQL driver. The Go standard library has no PostgreSQL driver. | PROPOSED: the most widely used maintained Go driver. |
-| `golang.org/x/crypto` (argon2id) | latest tagged | Password hashing (FR-6.5). The Go standard library has no memory-hard password hash. | PROPOSED |
-| `github.com/pquerna/otp` | version TO BE DECIDED | TOTP enrolment and checks (FR-6.5, FR-6.15). Not in the Go standard library. | PROPOSED |
-| `github.com/mmcdole/gofeed` | version TO BE DECIDED | Parses RSS, Atom, and JSON feeds from the FR-1.14 sources. Writing three feed parsers by hand would add more risk than one dependency. | PROPOSED |
-| MITRE ATT&CK Enterprise STIX bundle | version TO BE DECIDED | Technique IDs, names, tactics, and links (FR-1.4, FR-7). This is a data file, not a package. | CONFIRMED (required) |
+| `github.com/jackc/pgx/v5` | [v5.13.0](https://github.com/jackc/pgx/tree/v5.13.0) (minimum Go 1.25) | PostgreSQL driver. The Go standard library has no PostgreSQL driver. | PROPOSED |
+| `golang.org/x/net` (Gin HTTP/2 dependency) | [v0.62.0](https://pkg.go.dev/golang.org/x/net@v0.62.0) | Explicitly pins above Gin 1.12.0's vulnerable v0.51.0; `govulncheck` found reachable HTTP/2 advisories. | CONFIRMED |
+| `github.com/quic-go/quic-go` (Gin HTTP/3 dependency) | [v0.65.0](https://github.com/quic-go/quic-go/releases/tag/v0.65.0) | Explicitly pins above Gin 1.12.0's vulnerable v0.59.0; `govulncheck` found a reachable HTTP/3 advisory. Gin builds with this release. | CONFIRMED |
+| `golang.org/x/crypto` (argon2id) | [v0.59.0](https://github.com/golang/crypto/tree/v0.59.0) | Password hashing (FR-6.5). The Go standard library has no memory-hard password hash. Also removes an unreachable OpenPGP advisory in Gin's dependency tree. | CONFIRMED |
+| `github.com/pquerna/otp` | [v1.5.0](https://github.com/pquerna/otp/releases/tag/v1.5.0) | TOTP enrolment and checks (FR-6.5, FR-6.15). Not in the Go standard library. | PROPOSED |
+| `github.com/mmcdole/gofeed` | [v1.5.0](https://github.com/mmcdole/gofeed/releases/tag/v1.5.0) | Parses RSS, Atom, and JSON feeds from the FR-1.14 sources. Writing three feed parsers by hand would add more risk than one dependency. | PROPOSED |
+| MITRE ATT&CK Enterprise STIX bundle | [v20.1](https://github.com/mitre-attack/attack-stix-data/releases/tag/v20.1) | Technique IDs, names, tactics, and links (FR-1.4, FR-7). This is a data file, not a package. | CONFIRMED (required) |
 | Email delivery | The owner's personal mail account over SMTP with STARTTLS or TLS and an app password. The provider is UNKNOWN. | Morning alerts and password reset (FR-4.2, FR-6.9). Go's `net/smtp` is the client, so no extra package is needed. | CONFIRMED (AQ-4) |
 | SMS delivery: Twilio Programmable Messaging REST API | 2010-04-01 API | Text alerts and phone verification codes (FR-4.3, FR-4.15). Called with the standard `net/http` client, with no SDK. US numbers need toll-free or A2P 10DLC registration. | CONFIRMED (AQ-5, delegated decision) |
 | Slack incoming webhooks | Slack platform | Slack alerts (FR-4.4, FR-4.16). Uses the standard `net/http` client with no SDK. | CONFIRMED (required) |
 | HIBP Pwned Passwords range API | v3 range API | FR-6.6. Uses k-anonymity: only the first 5 hex characters of the password's SHA-1 leave the machine, with the `Add-Padding` header. If the API is unreachable, the password is refused and the user is told to try again later (fails closed). A local copy of the full list (about 40 GB) is too large for a personal tool. | CONFIRMED (AQ-6, delegated decision) |
-| Vitest | version TO BE DECIDED | Client unit tests. It shares Vite's configuration. | PROPOSED |
+| Vitest | [5.1.0](https://github.com/vitest-dev/vitest/releases/tag/v5.1.0) | Client unit tests. It shares Vite's configuration and supports Vite 8 and Node.js 26. | CONFIRMED |
 
 The client does not use a router, a state library, or a UI kit. The four screens in `DESIGN.md` can use React state and URL fragments. If they turn out not to be enough, that becomes a new AQ.
+
+## Current Scaffold
+
+- `cmd/server` starts a loopback-only HTTPS server. It requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE`; the certificate must be locally trusted and cover only `localhost`, `127.0.0.1`, and `::1`, and the private key must be outside the repository with mode `0600`.
+- `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, and security headers. There are intentionally no application routes yet.
+- `src` contains a placeholder React entry point. `npm run dev` starts Vite on `localhost`; `npm run build` type-checks and builds the client.
+- The client build is not yet served by the Go process; embedding and serving it remain proposed.
 
 ## Components and Flows
 
@@ -147,6 +157,4 @@ flowchart LR
 
 ## Open Questions
 
-None. In the interview, the owner answered AQ-1 to AQ-4. The owner then told the author to answer the rest. AQ-5, AQ-6, and AQ-7 were decided on that instruction and are marked *(delegated decision)* in the Stack table. These details are still UNKNOWN and will be settled when building:
-- which mail provider the owner uses for SMTP
-- the exact pinned versions of the PROPOSED Go and npm packages
+No architecture choices block implementation. In the interview, the owner answered AQ-1 to AQ-4. The owner then told the author to answer the rest. AQ-5, AQ-6, and AQ-7 were decided on that instruction and are marked *(delegated decision)* in the Stack table. The owner's SMTP provider is still UNKNOWN and will be selected when configuring email delivery. The scaffold's `go.mod`/`go.sum` and `package.json`/`package-lock.json` are committed; review resolved dependency trees and rerun security and license checks before adding proposed packages.
