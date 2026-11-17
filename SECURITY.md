@@ -12,7 +12,7 @@ This file owns the secure-coding rules. `REQUIREMENTS.md` owns WHAT the system d
 
 **Confirmed components (from ARCHITECTURE.md, Stack):**
 - Go 1.27.x (`net/http`, `crypto/*`, `html/template`, `log/slog`, `net/smtp`); Gin v1.12.x
-- PostgreSQL 18.x via `github.com/jackc/pgx/v5` (PROPOSED); `golang.org/x/crypto/argon2` (PROPOSED); `github.com/pquerna/otp` (PROPOSED); `github.com/mmcdole/gofeed` (PROPOSED)
+- PostgreSQL 18.x via `github.com/jackc/pgx/v5` v5.13.0; RSS parsing via `github.com/mmcdole/gofeed` v1.5.0; `golang.org/x/crypto/argon2` (PROPOSED); `github.com/pquerna/otp` (PROPOSED)
 - React + React DOM 19.3.x; TypeScript 7.0.x; Vite 8.3.x (PROPOSED); Node.js 26.x LTS (build machine only, PROPOSED); npm; Vitest (PROPOSED)
 - Outbound: SMTP (owner's mail account, provider UNKNOWN), Twilio Programmable Messaging REST API 2010-04-01, Slack incoming webhooks, HIBP Pwned Passwords range API v3, collection sources (FR-1.14), MITRE ATT&CK STIX bundle (data file)
 - Deployment: one machine, server on localhost only with a local TLS certificate, one Go process, local PostgreSQL (AQ-1, AQ-2)

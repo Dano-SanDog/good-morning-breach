@@ -93,16 +93,23 @@ This is a closed service. Every page needs a login, and there is no self sign-up
 
 ## Development
 
-Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked client dependencies with `npm ci --ignore-scripts`, run the placeholder client with `npm run dev`, and validate it with `npm run build` and `npm test`. The Go server has no application routes yet; when started, it requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE` for a locally trusted certificate and key stored outside the repository. The private key must have mode `0600`.
+Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked client dependencies with `npm ci --ignore-scripts`, run the placeholder client with `npm run dev`, and validate it with `npm run build` and `npm test`. The Go server still has no application routes; when started, it requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE` for a locally trusted certificate and key stored outside the repository. The private key must have mode `0600`.
+
+### First feed collection
+
+Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migration seeds the licensed CERT-EU security-advisory RSS source and grants the `gb_app` role only the collection permissions it needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
+
+The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and observes the feed's advertised 24-hour TTL. The command is currently one-shot; scheduling and the other sources remain future work. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
 
 ## Roadmap
 
 - [x] Write requirements ([REQUIREMENTS.md](REQUIREMENTS.md))
 - [x] Research source licenses
 - [x] Design system, logo, and preview ([DESIGN.md](DESIGN.md))
-- [x] Choose and pin the tech stack baseline ([ARCHITECTURE.md](ARCHITECTURE.md); proposed dependencies still need checks before integration)
+- [x] Choose and pin the tech stack baseline ([ARCHITECTURE.md](ARCHITECTURE.md); remaining proposed dependencies need checks before integration)
 - [x] Create and audit the Go/React application scaffold
-- [ ] Build source ingestion, including license records and content rules
+- [x] Implement the first licensed RSS ingestion slice (CERT-EU)
+- [ ] Schedule collection and add the remaining approved sources
 - [ ] Add categorization and risk scoring
 - [ ] Add MITRE ATT&CK mapping
 - [ ] Build authentication and roles (admin/user)
