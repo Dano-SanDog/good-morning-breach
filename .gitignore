@@ -1,5 +1,6 @@
 node_modules/
 dist/
+internal/httpserver/static/build/
 coverage/
 coverage.out
 *.test

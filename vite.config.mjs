@@ -5,5 +5,8 @@ export default defineConfig({
     host: "localhost",
     fs: { strict: true },
   },
-  build: { sourcemap: false },
+  build: {
+    outDir: "internal/httpserver/static/build",
+    sourcemap: false,
+  },
 });

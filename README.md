@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** Requirements and design are complete; the Go/React application scaffold is in place, but product workflows are not implemented. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. The remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -93,13 +93,44 @@ This is a closed service. Every page needs a login, and there is no self sign-up
 
 ## Development
 
-Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked client dependencies with `npm ci --ignore-scripts`, run the placeholder client with `npm run dev`, and validate it with `npm run build` and `npm test`. The Go server still has no application routes; when started, it requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE` for a locally trusted certificate and key stored outside the repository. The private key must have mode `0600`.
+Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked client dependencies with `npm ci --ignore-scripts`; run `npm run build`, `npm test`, `go test ./...`, and `go vet ./...` to validate changes. The client build is embedded in the Go server, so run `npm run build` before starting or building the server. `npm run dev` serves only the client and does not provide the API; use the integrated HTTPS server for the working application.
 
 ### First feed collection
 
-Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migration seeds the licensed CERT-EU security-advisory RSS source and grants the `gb_app` role only the collection permissions it needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
+Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migration seeds the licensed CERT-EU security-advisory RSS source and grants the `gb_app` role only the ingestion, authentication, and story-reading permissions the application needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
 
 The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and observes the feed's advertised 24-hour TTL. The command is currently one-shot; scheduling and the other sources remain future work. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
+
+### Run the authenticated dashboard
+
+After migrations are applied and the client dependencies are installed:
+
+1. Build the client: `npm run build`.
+2. Create and trust a localhost certificate with `mkcert` (install it with `brew install mkcert` on macOS):
+
+   ```sh
+   mkdir -p "$HOME/.config/gmb-tls"
+   mkcert -install
+   mkcert -cert-file "$HOME/.config/gmb-tls/localhost.pem" \
+     -key-file "$HOME/.config/gmb-tls/localhost-key.pem" \
+     localhost 127.0.0.1 ::1
+   chmod 600 "$HOME/.config/gmb-tls/localhost-key.pem"
+   ```
+
+   Keep both files outside the repository. The server refuses to start unless the private key is a regular file with mode `0600`.
+3. Create the first admin interactively: `go run ./cmd/bootstrap`. Enter the email normally and the password at the hidden prompt. The password must be at least 12 characters and not appear in the HIBP Pwned Passwords service. An authenticator app is enrolled on first sign-in.
+4. Collect CERT-EU once with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`.
+5. Start the server:
+
+   ```sh
+   GB_TLS_CERT_FILE="$HOME/.config/gmb-tls/localhost.pem" \
+   GB_TLS_KEY_FILE="$HOME/.config/gmb-tls/localhost-key.pem" \
+     go run ./cmd/server
+   ```
+
+6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows CERT-EU stories from the last 24 hours (up to 100). Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime.
+
+The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
 ## Roadmap
 
@@ -112,7 +143,7 @@ The collector stores normalized headlines and original links, not feed descripti
 - [ ] Schedule collection and add the remaining approved sources
 - [ ] Add categorization and risk scoring
 - [ ] Add MITRE ATT&CK mapping
-- [ ] Build authentication and roles (admin/user)
-- [ ] Build the dashboard
+- [ ] Complete authentication and roles (admin/user management, password reset, and account administration)
+- [ ] Complete the dashboard (filters, risk analysis, ATT&CK mapping, Radar, and admin source status)
 - [ ] Add alert delivery (email, SMS, Slack)
 - [ ] Apply for Reddit API access

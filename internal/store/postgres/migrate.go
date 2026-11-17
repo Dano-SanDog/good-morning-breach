@@ -13,8 +13,20 @@ import (
 //go:embed migrations/001_ingestion.sql
 var ingestionMigration string
 
-const migrationVersion = 1
+//go:embed migrations/002_identity.sql
+var identityMigration string
+
 const migrationLockID int64 = 0x47424d
+
+type migration struct {
+	version int
+	sql     string
+}
+
+var migrations = []migration{
+	{version: 1, sql: ingestionMigration},
+	{version: 2, sql: identityMigration},
+}
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	migrationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -41,28 +53,31 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := tx.Exec(migrationCtx, `SELECT pg_advisory_xact_lock($1)`, migrationLockID); err != nil {
 		return fmt.Errorf("lock migrations: %w", err)
 	}
-	var applied bool
-	if err := tx.QueryRow(migrationCtx,
-		`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`,
-		migrationVersion,
-	).Scan(&applied); err != nil {
-		return fmt.Errorf("check migration version: %w", err)
-	}
-	if !applied {
-		for _, statement := range strings.Split(ingestionMigration, ";") {
+	for _, current := range migrations {
+		var applied bool
+		if err := tx.QueryRow(migrationCtx,
+			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`,
+			current.version,
+		).Scan(&applied); err != nil {
+			return fmt.Errorf("check migration version %d: %w", current.version, err)
+		}
+		if applied {
+			continue
+		}
+		for _, statement := range strings.Split(current.sql, ";") {
 			statement = strings.TrimSpace(statement)
 			if statement == "" {
 				continue
 			}
 			if _, err := tx.Exec(migrationCtx, statement); err != nil {
-				return fmt.Errorf("apply ingestion migration: %w", err)
+				return fmt.Errorf("apply migration %d: %w", current.version, err)
 			}
 		}
 		if _, err := tx.Exec(migrationCtx,
 			`INSERT INTO schema_migrations (version) VALUES ($1)`,
-			migrationVersion,
+			current.version,
 		); err != nil {
-			return fmt.Errorf("record migration version: %w", err)
+			return fmt.Errorf("record migration %d: %w", current.version, err)
 		}
 	}
 	if err := tx.Commit(migrationCtx); err != nil {

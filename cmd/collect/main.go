@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
@@ -14,8 +16,10 @@ import (
 const defaultDatabaseURL = "host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable"
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
+	if err := applog.Configure(); err != nil {
+		fmt.Fprintf(os.Stderr, "configure application logs: %v\n", err)
+		os.Exit(1)
+	}
 	if err := run(); err != nil {
 		slog.Error("collection command failed", "error", err)
 		os.Exit(1)

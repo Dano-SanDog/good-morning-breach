@@ -1,6 +1,6 @@
 # Architecture: Good Morning Breach
 
-This file owns HOW the system is built: its components, boundaries, technology, and data flow. `REQUIREMENTS.md` owns WHAT the system does. `DESIGN.md` owns how it looks. `SECURITY.md` owns the detailed controls. The application scaffold and a one-source RSS ingestion slice exist; the remaining product workflows are not implemented yet.
+This file owns HOW the system is built: its components, boundaries, technology, and data flow. `REQUIREMENTS.md` owns WHAT the system does. `DESIGN.md` owns how it looks. `SECURITY.md` owns the detailed controls. The application scaffold, one-source RSS ingestion, and the first authenticated dashboard slice are implemented; the remaining product workflows are still in progress.
 
 Version pins were checked against official release and registry sources on 2026-11-16. The scaffold's Go and npm dependency trees were resolved, license-checked, and audited before being added. The npm production and full audits passed, and 44 installed packages had verified registry signatures. The original Go scaffold passed `go mod verify` and `govulncheck ./...`; all 55 modules had recognized permissive licenses. The 94-package npm tree includes 12 optional, platform-specific Lightning CSS packages under MPL-2.0; this is acceptable for this private, non-distributed service, but must be reconsidered before distribution. The Gin tree required patched `x/net`, `quic-go`, and `x/crypto` pins to pass the vulnerability gate. On 2026-11-16, the added pgx v5.13.0 and gofeed v1.5.0 tags were verified from upstream/Go module sources, their MIT licenses were checked, direct OSV queries returned no advisories, `govulncheck ./...` found no vulnerabilities, and `go-licenses check` passed for third-party dependencies. Continue these checks before adding other proposed packages.
 
@@ -10,9 +10,9 @@ Version pins were checked against official release and registry sources on 2026-
 - **Target surfaces:** a web dashboard; background jobs for collection, analysis, the morning alert, and retention. Public APIs: none.
 - **Runtime and deployment environment:** CONFIRMED (AQ-1): a single machine owned by the owner, for the owner only. The server listens on localhost only and uses a local TLS certificate (NFR-3.1). Alerts at 07:00 need that machine to be on and awake. Because availability is best effort (NFR-4.1), this is accepted. Dashboard links in text messages (FR-4.13) only open on this machine. Accounts beyond the owner's are supported (NFR-2.1) but can only be used on this machine.
 - **Server framework:** Go with Gin (explicit choice).
-- **Client frameworks:** ReactJS (explicit choice), built as a single-page app and served by the Go server. Serving it from the Go server is PROPOSED.
-- **API style:** a private JSON-over-HTTPS API used only by the bundled client. It is not a public API. PROPOSED, because it is the simplest fit for a React client and a Gin server.
-- **Authentication and session model:** email, password, and TOTP (FR-6.5). A server-side session referenced by a cookie, with a 30-minute idle timeout (FR-6.10). The server-side session is PROPOSED.
+- **Client frameworks:** ReactJS (explicit choice), built as a single-page app and served by the Go server.
+- **API style:** a private JSON-over-HTTPS API used only by the bundled client. It is not a public API.
+- **Authentication and session model:** email, password, and TOTP (FR-6.5). A server-side session referenced by a cookie, with a 30-minute idle timeout and an 8-hour absolute timeout.
 - **Outbound calls:** collection sources, MITRE, SMTP, Twilio, Slack webhooks, and the HIBP range API. There are no inbound connections from outside the machine.
 - **Authorization model:** two roles, admin and user (FR-6.4), plus ownership checks on per-user settings (FR-6.12). Enforced in the server only.
 - **Data store and expected scale:** PostgreSQL, one local instance on the same machine (CONFIRMED, AQ-2). Scale: at least 10 accounts (NFR-2.1) and 365 days of stories (FR-10.1). Story volume per day is UNKNOWN.
@@ -35,7 +35,9 @@ Version pins were checked against official release and registry sources on 2026-
 | `golang.org/x/net` | [v0.62.0](https://pkg.go.dev/golang.org/x/net@v0.62.0) | Pins above Gin 1.12.0's vulnerable v0.51.0 and is used to parse untrusted HTML title markup safely. `govulncheck` found no reachable advisories at this pin. | CONFIRMED |
 | `github.com/quic-go/quic-go` (Gin HTTP/3 dependency) | [v0.65.0](https://github.com/quic-go/quic-go/releases/tag/v0.65.0) | Explicitly pins above Gin 1.12.0's vulnerable v0.59.0; `govulncheck` found a reachable HTTP/3 advisory. Gin builds with this release. | CONFIRMED |
 | `golang.org/x/crypto` (argon2id) | [v0.59.0](https://github.com/golang/crypto/tree/v0.59.0) | Password hashing (FR-6.5). The Go standard library has no memory-hard password hash. Also removes an unreachable OpenPGP advisory in Gin's dependency tree. | CONFIRMED |
-| `github.com/pquerna/otp` | [v1.5.0](https://github.com/pquerna/otp/releases/tag/v1.5.0) | TOTP enrolment and checks (FR-6.5, FR-6.15). Not in the Go standard library. | PROPOSED |
+| `github.com/pquerna/otp` | [v1.5.0](https://github.com/pquerna/otp/releases/tag/v1.5.0) | TOTP enrolment and checks (FR-6.5, FR-6.15). Not in the Go standard library. The tagged release is Apache-2.0 licensed (corrected after checking the upstream tag on 2026-11-17). | CONFIRMED |
+| `golang.org/x/term` | [v0.48.0](https://pkg.go.dev/golang.org/x/term@v0.48.0) | Reads the bootstrap administrator password without echoing it to the terminal. The official Go sub-repository is BSD-3-Clause licensed and depends on the already-pinned `golang.org/x/sys` v0.50.0. Checked against the upstream tag and OSV on 2026-11-17. | CONFIRMED |
+| `github.com/boombuler/barcode` (indirect) | [v1.1.0](https://github.com/boombuler/barcode/releases/tag/v1.1.0) | Required by `pquerna/otp`'s provisioning-key package even though this client displays the TOTP key for manual entry rather than generating a QR image. The upstream release is MIT-licensed, has no additional module requirements, and was checked against OSV on 2026-11-17. | CONFIRMED |
 | `github.com/mmcdole/gofeed` | [v1.5.0](https://github.com/mmcdole/gofeed/releases/tag/v1.5.0) | Parses RSS, Atom, and JSON feeds from the FR-1.14 sources. Writing three feed parsers by hand would add more risk than one dependency. The tagged release is MIT-licensed. | CONFIRMED |
 | MITRE ATT&CK Enterprise STIX bundle | [v20.1](https://github.com/mitre-attack/attack-stix-data/releases/tag/v20.1) | Technique IDs, names, tactics, and links (FR-1.4, FR-7). This is a data file, not a package. | CONFIRMED (required) |
 | Email delivery | The owner's personal mail account over SMTP with STARTTLS or TLS and an app password. The provider is UNKNOWN. | Morning alerts and password reset (FR-4.2, FR-6.9). Go's `net/smtp` is the client, so no extra package is needed. | CONFIRMED (AQ-4) |
@@ -49,12 +51,14 @@ The client does not use a router, a state library, or a UI kit. The four screens
 ## Current Scaffold
 
 - `cmd/server` starts a loopback-only HTTPS server. It requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE`; the certificate must be locally trusted and cover only `localhost`, `127.0.0.1`, and `::1`, and the private key must be outside the repository with mode `0600`.
-- `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, and security headers. There are intentionally no application routes yet.
-- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` uses the restricted `gb_app` role and performs one collection run.
+- `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, security headers, CSRF checks, and generic error responses. Its API currently supports sign-in, authenticator enrollment, session activity/logout, and listing recent stories.
+- `internal/identity` implements first-admin bootstrap, Argon2id password hashing with a HIBP range check, TOTP enrollment and verification, failed-login lockout, and hashed server-side sessions. User management and password resets remain future work.
+- `internal/applog` writes structured JSON logs to stdout and private daily files under the OS user configuration directory. The log directory is `0700`; log files are `0600`; files older than 30 days are removed.
+- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` and `cmd/server` use the restricted `gb_app` role; the collector performs one collection run.
 - `internal/ingest` fetches the seeded CERT-EU RSS feed, respects its 24-hour advertised TTL, stores only normalized headlines and links, and records failures. `internal/store/postgres` deduplicates stories globally by canonical link and keeps source associations and collection status.
 - The collector's shared outbound client blocks private and special-use IP addresses at connection time, does not use proxies or follow redirects, and has bounded timeouts. Feed responses are capped at 10 MiB.
-- `src` contains a placeholder React entry point. `npm run dev` starts Vite on `localhost`; `npm run build` type-checks and builds the client.
-- The client build is not yet served by the Go process; embedding and serving it remain proposed.
+- `src` provides sign-in, first-login authenticator enrollment, logout, and a recent-stories view. Story titles are rendered as text and external links are scheme-checked.
+- `npm run build` type-checks and creates the client bundle embedded by the Go process. `npm run dev` starts Vite on localhost but does not proxy the API; use the integrated server to test the full path.
 
 ## Components and Flows
 
@@ -62,23 +66,23 @@ The production components are intended to run in **one Go process** that uses on
 
 | Component | Responsibility | Business rules enforced | Data owned | Requirement IDs | Status |
 |---|---|---|---|---|---|
-| Web client (React) | Shows the screens. Holds no authority. | None. It only displays what the server allows. | None | FR-5, DESIGN.md | SUPPORTED |
-| HTTP API (Gin) | Transport: routes, sessions, CSRF, input parsing, mapping errors to responses | Authentication gate on every route; role and ownership checks done by calling Identity | None | FR-6.1, FR-6.2, NFR-3.1 | SUPPORTED |
-| Identity | Accounts, roles, login, TOTP, lockout, password reset, sessions | FR-6.3 to FR-6.15; FR-9.1 to FR-9.5; FR-9.7 | Accounts, roles, credential hashes, TOTP secrets, sessions, reset tokens | FR-6, FR-9 | SUPPORTED |
-| Audit log | Records admin actions and lets admins read them | Append-only | Admin action records | FR-9.6 | SUPPORTED |
-| Source registry | Sources, license records, content rights | FR-1.5, FR-1.6, FR-1.15, FR-1.16, FR-8.1 to FR-8.3, FR-8.8, FR-8.9 | Sources, license records, source status | FR-8 | SUPPORTED |
-| Collector (job) | Fetches each enabled source on its schedule. Normalizes and de-duplicates items. Handles Reddit removals. | FR-1.8 to FR-1.12, FR-1.17, FR-1.18, FR-1.20, FR-1.21; records failures | Raw collection results, failure records | FR-1, FR-8.6, FR-8.7 | SUPPORTED |
-| Analyzer (job) | Assigns categories, sentiment, risk, ATT&CK tags, summaries, and CVE links | FR-2.1 to FR-2.6, FR-3, FR-7.1, FR-1.13; skips Reddit text; no summary where FR-8.9 forbids one | Category, sentiment, risk, and tag assignments | FR-2, FR-3, FR-7 | SUPPORTED: local rules (AQ-3) |
-| Story store | Stories, the sources that reported them, related links, query and search | FR-1.12, FR-5.3 to FR-5.5, FR-10.1 | Stories | FR-5, FR-10 | SUPPORTED |
-| Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | SUPPORTED |
-| Alerting (job) | Per-user schedule, story selection, rendering, delivery, retries | FR-4.5 to FR-4.19; FR-8.8 and FR-8.11 on every channel | Alert settings, delivery records | FR-4, FR-10.2 | SUPPORTED |
-| Channel adapters | Email, SMS, and Slack transport only | None | None | FR-4.2 to FR-4.4 | SUPPORTED |
-| Scheduler | Starts collection, analysis, alert, and retention runs in-process | FR-1.9 (collect before alerts), NFR-2.2 | None | FR-1.8, FR-4.5, FR-10 | SUPPORTED |
-| Retention (job) | Deletes expired stories and delivery records | FR-10.1, FR-10.2 | None | FR-10 | SUPPORTED |
+| Web client (React) | Sign-in, TOTP enrollment, logout, and recent stories | Displays server-authorized data; renders collected content as text | None | FR-5, DESIGN.md | PARTIAL |
+| HTTP API (Gin) | Authentication routes, session lifecycle, CSRF, story listing, and static assets | Protects story reads and validates state-changing requests | None | FR-6.1, FR-6.2, NFR-3.1 | PARTIAL |
+| Identity | Initial admin, password/TOTP authentication, lockout, and sessions | Password checks, TOTP replay rejection, session timeouts | Accounts, credential hashes, encrypted TOTP secrets, sessions | FR-6, FR-9 | PARTIAL |
+| Audit log | Records admin actions and lets admins read them | Append-only | Admin action records | FR-9.6 | PLANNED |
+| Source registry | Sources, license records, content rights | FR-1.5, FR-1.6, FR-1.15, FR-1.16, FR-8.1 to FR-8.3, FR-8.8, FR-8.9 | Sources, license records, source status | FR-8 | PLANNED |
+| Collector (job) | One-shot fetch of the seeded CERT-EU RSS source | Normalizes and de-duplicates stories; records failures | Collection results | FR-1, FR-8.6, FR-8.7 | PARTIAL |
+| Analyzer (job) | Assigns categories, sentiment, risk, ATT&CK tags, summaries, and CVE links | FR-2.1 to FR-2.6, FR-3, FR-7.1, FR-1.13; skips Reddit text; no summary where FR-8.9 forbids one | Category, sentiment, risk, and tag assignments | FR-2, FR-3, FR-7 | PLANNED |
+| Story store | Ingested stories and source associations; limited recent-story query | Canonical-link de-duplication and source attribution | Stories | FR-1.12, FR-5.3 to FR-5.5, FR-10.1 | PARTIAL |
+| Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | PLANNED |
+| Alerting (job) | Per-user schedule, story selection, rendering, delivery, retries | FR-4.5 to FR-4.19; FR-8.8 and FR-8.11 on every channel | Alert settings, delivery records | FR-4, FR-10.2 | PLANNED |
+| Channel adapters | Email, SMS, and Slack transport only | None | None | FR-4.2 to FR-4.4 | PLANNED |
+| Scheduler | Starts collection, analysis, alert, and retention runs in-process | FR-1.9 (collect before alerts), NFR-2.2 | None | FR-1.8, FR-4.5, FR-10 | PLANNED |
+| Retention (job) | Deletes expired stories and delivery records | FR-10.1, FR-10.2 | None | FR-10 | PLANNED |
 
 ### Main data flows
 
-1. **Collect:** Scheduler → Collector → source (HTTPS) → Collector validates and normalizes → Story store. Failures go to source status.
+1. **Collect (current):** `cmd/collect` → Collector → CERT-EU RSS (HTTPS) → Collector validates and normalizes → Story store. Failures are recorded and logged. A scheduler and additional sources remain future work.
 2. **Analyze:** Story store → Analyzer (with ATT&CK data and the source's content rights) → Story store.
 3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, or Source registry → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.
@@ -89,7 +93,7 @@ The production components are intended to run in **one Go process** that uses on
 - **TB-1 Browser ↔ HTTP API.** Authentication, CSRF protection, and the session idle timeout are enforced in HTTP API middleware. Request validation happens at the API edge. Authorization (role and ownership) happens in Identity, called by every handler. The client is never trusted.
 - **TB-2 External sources → Collector.** All collected data is untrusted (NFR-3.4). The Collector validates size, type, and URL scheme on intake. Output encoding happens at render time: React escapes text, and email bodies use `html/template`. Slack text is escaped before sending.
 - **TB-3 Server → delivery providers (SMTP, Twilio, Slack) and the HIBP range API.** Outbound only. Slack webhook URLs are validated against the Slack incoming-webhook format when saved (FR-4.16). Provider credentials stay on the server.
-- **TB-4 Process ↔ PostgreSQL and secrets on disk.** PostgreSQL listens on localhost only. `cmd/collect` uses the restricted `gb_app` role; the separate `cmd/migrate` command uses the local schema owner. Only the server process reads application secrets. Secrets at rest are owned by `SECURITY.md`.
+- **TB-4 Process ↔ PostgreSQL and secrets on disk.** PostgreSQL listens on localhost only. `cmd/collect` and `cmd/server` use the restricted `gb_app` role; `cmd/migrate` and `cmd/bootstrap` use the local database owner. The server and bootstrap command access the application data key. Secrets at rest are owned by `SECURITY.md`.
 - **TB-5 Operator ↔ installation.** The first admin is created at install time (FR-9.7) through a local setup step, not through the web.
 
 **Analysis method (CONFIRMED, AQ-3).** The Analyzer runs local rules only, and no collected content leaves the machine. Rules combine keyword and pattern matching on the title and permitted text, structured feed fields (CVSS, CISA KEV membership, EPSS, CVE IDs, vendor advisory severity), and the names and aliases in the MITRE ATT&CK bundle. The Analyzer generates no free-text summaries. Where FR-8.8 permits "system summary" or "verbatim excerpt", the "short summary" shown (FR-4.12, FR-5.2) is a truncated verbatim excerpt. Where only "headline and link" is permitted, no summary is shown. This satisfies FR-8.9 by construction. The exact rules are TO BE DECIDED in later steps.
@@ -147,7 +151,7 @@ flowchart LR
 |---|---|---|
 | Install (server) | `go mod download` | PostgreSQL 18 is installed separately, for example with `brew install postgresql@18` |
 | Install (client) | `npm ci --ignore-scripts` | Uses Node 26 LTS; scripts disabled per SC-091 |
-| Build (client) | `npm run build` (runs `vite build`) | The output is embedded into the Go binary (PROPOSED) |
+| Build (client) | `npm run build` | Must run before building the Go server; output is embedded in the binary |
 | Build (server) | `go build ./...` | |
 | Type-check (server) | `go vet ./...` | The compiler type-checks during the build |
 | Type-check (client) | `tsc --noEmit` | |
