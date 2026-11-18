@@ -3,6 +3,23 @@ import "./styles.css";
 import logo from "../logo.svg";
 
 type User = { email: string; role: "admin" | "user" };
+type ManagedAccount = {
+  id: number;
+  email: string;
+  role: "admin" | "user";
+  enabled: boolean;
+  totpRequired: boolean;
+  totpEnrolled: boolean;
+  createdAt: string;
+};
+type AdminAuditRecord = {
+  id: number;
+  actorAccountId: number;
+  targetAccountId: number;
+  action: string;
+  details: string;
+  createdAt: string;
+};
 type AttackTechnique = {
   id: string;
   name: string;
@@ -150,9 +167,13 @@ async function responseError(response: Response): Promise<string> {
   return "The request could not be completed.";
 }
 
-async function postJSON(path: string, value: Record<string, string>): Promise<Response> {
+async function mutateJSON(
+  path: string,
+  method: "POST" | "PATCH" | "DELETE",
+  value: Record<string, unknown> = {},
+): Promise<Response> {
   return fetch(path, {
-    method: "POST",
+    method,
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
@@ -160,6 +181,66 @@ async function postJSON(path: string, value: Record<string, string>): Promise<Re
     },
     body: JSON.stringify(value),
   });
+}
+
+function parseManagedAccounts(value: unknown): ManagedAccount[] | null {
+  if (!isRecord(value) || !Array.isArray(value.accounts)) {
+    return null;
+  }
+  const accounts: ManagedAccount[] = [];
+  for (const item of value.accounts) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "number" ||
+      typeof item.email !== "string" ||
+      (item.role !== "admin" && item.role !== "user") ||
+      typeof item.enabled !== "boolean" ||
+      typeof item.totpRequired !== "boolean" ||
+      typeof item.totpEnrolled !== "boolean" ||
+      typeof item.createdAt !== "string"
+    ) {
+      return null;
+    }
+    accounts.push({
+      id: item.id,
+      email: item.email,
+      role: item.role,
+      enabled: item.enabled,
+      totpRequired: item.totpRequired,
+      totpEnrolled: item.totpEnrolled,
+      createdAt: item.createdAt,
+    });
+  }
+  return accounts;
+}
+
+function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
+  if (!isRecord(value) || !Array.isArray(value.events)) {
+    return null;
+  }
+  const records: AdminAuditRecord[] = [];
+  for (const item of value.events) {
+    if (
+      !isRecord(item) ||
+      typeof item.id !== "number" ||
+      typeof item.actorAccountId !== "number" ||
+      typeof item.targetAccountId !== "number" ||
+      typeof item.action !== "string" ||
+      typeof item.details !== "string" ||
+      typeof item.createdAt !== "string"
+    ) {
+      return null;
+    }
+    records.push({
+      id: item.id,
+      actorAccountId: item.actorAccountId,
+      targetAccountId: item.targetAccountId,
+      action: item.action,
+      details: item.details,
+      createdAt: item.createdAt,
+    });
+  }
+  return records;
 }
 
 export function ExternalStoryLink({ story }: { story: Story }) {
@@ -181,9 +262,14 @@ export function App() {
   const [view, setView] = useState<View>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [stories, setStories] = useState<Story[]>([]);
+  const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([]);
+  const [adminAudit, setAdminAudit] = useState<AdminAuditRecord[]>([]);
   const [totpSecret, setTotpSecret] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [newAccountEmail, setNewAccountEmail] = useState("");
+  const [newAccountPassword, setNewAccountPassword] = useState("");
+  const [newAccountRole, setNewAccountRole] = useState<"admin" | "user">("user");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -201,11 +287,31 @@ export function App() {
     setStories(loaded);
   }, []);
 
+  const loadAdminData = useCallback(async () => {
+    const [accountsResponse, auditResponse] = await Promise.all([
+      fetch("/api/admin/accounts", { credentials: "same-origin" }),
+      fetch("/api/admin/audit", { credentials: "same-origin" }),
+    ]);
+    if (!accountsResponse.ok) {
+      throw new Error(await responseError(accountsResponse));
+    }
+    if (!auditResponse.ok) {
+      throw new Error(await responseError(auditResponse));
+    }
+    const accounts = parseManagedAccounts(await accountsResponse.json());
+    const audit = parseAdminAudit(await auditResponse.json());
+    if (!accounts || !audit) {
+      throw new Error("The server returned invalid administrator data.");
+    }
+    setManagedAccounts(accounts);
+    setAdminAudit(audit);
+  }, []);
+
   const startSetup = useCallback(async () => {
     setBusy(true);
     setMessage("");
     try {
-      const response = await postJSON("/api/auth/totp/setup/start", {});
+      const response = await mutateJSON("/api/auth/totp/setup/start", "POST");
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
@@ -229,12 +335,16 @@ export function App() {
       setView("dashboard");
       setMessage("");
       try {
-        await loadStories();
+        const requests: Promise<void>[] = [loadStories()];
+        if (signedInUser.role === "admin") {
+          requests.push(loadAdminData());
+        }
+        await Promise.all(requests);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "Could not load stories.");
+        setMessage(error instanceof Error ? error.message : "Could not load dashboard data.");
       }
     },
-    [loadStories],
+    [loadAdminData, loadStories],
   );
 
   useEffect(() => {
@@ -304,7 +414,7 @@ export function App() {
         return;
       }
       lastActivitySentAt = now;
-      void postJSON("/api/auth/activity", {}).then((response) => {
+      void mutateJSON("/api/auth/activity", "POST").then((response) => {
         if (active && response.status === 401) {
           setUser(null);
           setView("signin");
@@ -333,12 +443,20 @@ export function App() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await postJSON("/api/auth/login", { email, password });
+      const response = await mutateJSON("/api/auth/login", "POST", { email, password });
       setPassword("");
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
-      const step = parseLoginStep(await response.json());
+      const payload: unknown = await response.json();
+      const signedInUser = parseUser(payload);
+      if (signedInUser) {
+        setCode("");
+        setTotpSecret("");
+        await enterDashboard(signedInUser);
+        return;
+      }
+      const step = parseLoginStep(payload);
       if (!step) {
         throw new Error("The server returned an invalid sign-in challenge.");
       }
@@ -362,7 +480,7 @@ export function App() {
     setMessage("");
     const endpoint = view === "setup" ? "/api/auth/totp/setup/confirm" : "/api/auth/totp/login";
     try {
-      const response = await postJSON(endpoint, { code });
+      const response = await mutateJSON(endpoint, "POST", { code });
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
@@ -384,16 +502,80 @@ export function App() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await postJSON("/api/auth/logout", {});
+      const response = await mutateJSON("/api/auth/logout", "POST");
       if (!response.ok && response.status !== 401) {
         throw new Error(await responseError(response));
       }
       setUser(null);
       setStories([]);
+      setManagedAccounts([]);
+      setAdminAudit([]);
       setCode("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleCreateAccount(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON("/api/admin/accounts", "POST", {
+        email: newAccountEmail,
+        password: newAccountPassword,
+        role: newAccountRole,
+      });
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      setNewAccountEmail("");
+      setNewAccountPassword("");
+      await loadAdminData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not create the account.");
+    } finally {
+      setNewAccountPassword("");
+      setBusy(false);
+    }
+  }
+
+  async function handleUpdateAccount(
+    account: ManagedAccount,
+    changes: { role?: "admin" | "user"; enabled?: boolean },
+  ) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON(`/api/admin/accounts/${account.id}`, "PATCH", changes);
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      await loadAdminData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not update the account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteAccount(account: ManagedAccount) {
+    if (window.prompt(`Type ${account.email} to confirm account deletion.`) !== account.email) {
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON(`/api/admin/accounts/${account.id}`, "DELETE");
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      await loadAdminData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not delete the account.");
     } finally {
       setBusy(false);
     }
@@ -502,6 +684,137 @@ export function App() {
           <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"}</span>
         </div>
         {message && <p className="message" role="alert">{message}</p>}
+        {user?.role === "admin" && (
+          <section className="admin-panel" aria-labelledby="accounts-heading">
+            <div className="dashboard-heading">
+              <div>
+                <h2 id="accounts-heading">Account management</h2>
+                <p className="muted">Create accounts, manage access, and review administrator actions.</p>
+              </div>
+            </div>
+            <form className="account-create-form" onSubmit={handleCreateAccount}>
+              <label>
+                Email address
+                <input
+                  type="email"
+                  autoComplete="off"
+                  maxLength={254}
+                  required
+                  value={newAccountEmail}
+                  onChange={(event) => setNewAccountEmail(event.target.value)}
+                />
+              </label>
+              <label>
+                Initial password
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={256}
+                  required
+                  value={newAccountPassword}
+                  onChange={(event) => setNewAccountPassword(event.target.value)}
+                />
+              </label>
+              <label>
+                Role
+                <select
+                  value={newAccountRole}
+                  onChange={(event) => {
+                    if (event.target.value === "admin" || event.target.value === "user") {
+                      setNewAccountRole(event.target.value);
+                    }
+                  }}
+                >
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
+              <button type="submit" className="primary-button" disabled={busy}>
+                Create account
+              </button>
+            </form>
+            <div className="admin-table-scroll">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Account</th>
+                    <th scope="col">Role</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Authenticator</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {managedAccounts.map((account) => {
+                    const isCurrentAccount = account.email === user.email;
+                    return (
+                      <tr key={account.id}>
+                        <th scope="row">{account.email}</th>
+                        <td>
+                          <select
+                            aria-label={`Role for ${account.email}`}
+                            value={account.role}
+                            disabled={busy || isCurrentAccount}
+                            onChange={(event) => {
+                              if (event.target.value === "admin" || event.target.value === "user") {
+                                void handleUpdateAccount(account, { role: event.target.value });
+                              }
+                            }}
+                          >
+                            <option value="user">User</option>
+                            <option value="admin">Admin</option>
+                          </select>
+                        </td>
+                        <td>{account.enabled ? "Enabled" : "Disabled"}</td>
+                        <td>
+                          {!account.totpRequired
+                            ? "Not required"
+                            : account.totpEnrolled
+                              ? "Enrolled"
+                              : "Required"}
+                        </td>
+                        <td className="admin-actions">
+                          <button
+                            type="button"
+                            className="table-button"
+                            disabled={busy || isCurrentAccount}
+                            onClick={() => void handleUpdateAccount(account, { enabled: !account.enabled })}
+                          >
+                            {account.enabled ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            type="button"
+                            className="table-button danger-button"
+                            disabled={busy || isCurrentAccount}
+                            onClick={() => void handleDeleteAccount(account)}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <h3 className="audit-heading">Administrator action log</h3>
+            {adminAudit.length === 0 ? (
+              <p className="muted">No administrator actions recorded yet.</p>
+            ) : (
+              <ol className="audit-list">
+                {adminAudit.map((record) => (
+                  <li key={record.id}>
+                    <strong>{record.action.replaceAll("_", " ")}</strong>
+                    <span>Actor #{record.actorAccountId}, target #{record.targetAccountId}</span>
+                    <time dateTime={record.createdAt}>{new Date(record.createdAt).toLocaleString()}</time>
+                    <code>{record.details}</code>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        )}
         {stories.length === 0 ? (
           <section className="empty-state" aria-live="polite">
             <h2>No recent stories</h2>

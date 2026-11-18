@@ -60,12 +60,307 @@ func (s *IdentityStore) CreateAdmin(ctx context.Context, email, passwordHash str
 	return accountID, nil
 }
 
+func (s *IdentityStore) ListAccounts(ctx context.Context) ([]identity.ManagedAccount, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	rows, err := s.pool.Query(queryCtx, `SELECT
+		id, email, role, enabled, totp_required, totp_enrolled_at IS NOT NULL, created_at
+		FROM accounts
+		ORDER BY email`)
+	if err != nil {
+		return nil, fmt.Errorf("query managed accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []identity.ManagedAccount
+	for rows.Next() {
+		var account identity.ManagedAccount
+		if err := rows.Scan(
+			&account.ID,
+			&account.Email,
+			&account.Role,
+			&account.Enabled,
+			&account.TOTPRequired,
+			&account.TOTPEnrolled,
+			&account.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan managed account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read managed accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+func (s *IdentityStore) CreateAccount(
+	ctx context.Context,
+	actorID int64,
+	email, passwordHash, role string,
+) (identity.ManagedAccount, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return identity.ManagedAccount{}, fmt.Errorf("begin account creation: %w", err)
+	}
+	defer rollback(tx)
+	if err := lockAccountAdministration(queryCtx, tx); err != nil {
+		return identity.ManagedAccount{}, err
+	}
+	if err := requireActiveAdmin(queryCtx, tx, actorID); err != nil {
+		return identity.ManagedAccount{}, err
+	}
+
+	var account identity.ManagedAccount
+	err = tx.QueryRow(queryCtx, `INSERT INTO accounts (email, password_hash, role)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO NOTHING
+		RETURNING id, email, role, enabled, totp_required, false, created_at`,
+		email, passwordHash, role,
+	).Scan(
+		&account.ID,
+		&account.Email,
+		&account.Role,
+		&account.Enabled,
+		&account.TOTPRequired,
+		&account.TOTPEnrolled,
+		&account.CreatedAt,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.ManagedAccount{}, identity.ErrAccountExists
+	}
+	if err != nil {
+		return identity.ManagedAccount{}, fmt.Errorf("create account: %w", err)
+	}
+	details, err := json.Marshal(map[string]string{"role": role})
+	if err != nil {
+		return identity.ManagedAccount{}, fmt.Errorf("encode account creation audit details: %w", err)
+	}
+	if err := insertAdminAudit(queryCtx, tx, actorID, account.ID, "account_created", details); err != nil {
+		return identity.ManagedAccount{}, err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return identity.ManagedAccount{}, fmt.Errorf("commit account creation: %w", err)
+	}
+	return account, nil
+}
+
+func (s *IdentityStore) UpdateAccount(
+	ctx context.Context,
+	actorID, targetID int64,
+	role *string,
+	enabled *bool,
+) error {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return fmt.Errorf("begin account update: %w", err)
+	}
+	defer rollback(tx)
+	if err := lockAccountAdministration(queryCtx, tx); err != nil {
+		return err
+	}
+	if err := requireActiveAdmin(queryCtx, tx, actorID); err != nil {
+		return err
+	}
+
+	var currentRole string
+	var currentEnabled bool
+	err = tx.QueryRow(queryCtx, `SELECT role, enabled FROM accounts
+		WHERE id = $1 FOR UPDATE`, targetID).Scan(&currentRole, &currentEnabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load account for update: %w", err)
+	}
+
+	updatedRole := currentRole
+	if role != nil {
+		updatedRole = *role
+	}
+	updatedEnabled := currentEnabled
+	if enabled != nil {
+		updatedEnabled = *enabled
+	}
+	if currentRole == "admin" && currentEnabled &&
+		(updatedRole != "admin" || !updatedEnabled) {
+		if err := requireAnotherActiveAdmin(queryCtx, tx); err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.Exec(queryCtx, `UPDATE accounts SET role = $2, enabled = $3
+		WHERE id = $1`, targetID, updatedRole, updatedEnabled); err != nil {
+		return fmt.Errorf("update account: %w", err)
+	}
+	if currentEnabled && !updatedEnabled {
+		if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE account_id = $1`, targetID); err != nil {
+			return fmt.Errorf("revoke disabled account sessions: %w", err)
+		}
+	}
+
+	details := make(map[string]any, 2)
+	if role != nil {
+		details["role"] = updatedRole
+	}
+	if enabled != nil {
+		details["enabled"] = updatedEnabled
+	}
+	encodedDetails, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("encode account update audit details: %w", err)
+	}
+	if err := insertAdminAudit(queryCtx, tx, actorID, targetID, "account_updated", encodedDetails); err != nil {
+		return err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return fmt.Errorf("commit account update: %w", err)
+	}
+	return nil
+}
+
+func (s *IdentityStore) DeleteAccount(ctx context.Context, actorID, targetID int64) error {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return fmt.Errorf("begin account deletion: %w", err)
+	}
+	defer rollback(tx)
+	if err := lockAccountAdministration(queryCtx, tx); err != nil {
+		return err
+	}
+	if err := requireActiveAdmin(queryCtx, tx, actorID); err != nil {
+		return err
+	}
+
+	var role string
+	var enabled bool
+	err = tx.QueryRow(queryCtx, `SELECT role, enabled FROM accounts
+		WHERE id = $1 FOR UPDATE`, targetID).Scan(&role, &enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("load account for deletion: %w", err)
+	}
+	if role == "admin" && enabled {
+		if err := requireAnotherActiveAdmin(queryCtx, tx); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(queryCtx, `DELETE FROM accounts WHERE id = $1`, targetID); err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	if err := insertAdminAudit(queryCtx, tx, actorID, targetID, "account_deleted", []byte(`{}`)); err != nil {
+		return err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return fmt.Errorf("commit account deletion: %w", err)
+	}
+	return nil
+}
+
+func (s *IdentityStore) ListAdminAudit(ctx context.Context) ([]identity.AdminAuditRecord, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	rows, err := s.pool.Query(queryCtx, `SELECT
+		id, actor_account_id, target_account_id, action, details::text, created_at
+		FROM admin_audit_log
+		ORDER BY created_at DESC, id DESC
+		LIMIT 200`)
+	if err != nil {
+		return nil, fmt.Errorf("query administrator audit log: %w", err)
+	}
+	defer rows.Close()
+
+	var records []identity.AdminAuditRecord
+	for rows.Next() {
+		var record identity.AdminAuditRecord
+		if err := rows.Scan(
+			&record.ID,
+			&record.ActorAccountID,
+			&record.TargetAccountID,
+			&record.Action,
+			&record.Details,
+			&record.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan administrator audit record: %w", err)
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read administrator audit log: %w", err)
+	}
+	return records, nil
+}
+
+func lockAccountAdministration(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, adminBootstrapLockID); err != nil {
+		return fmt.Errorf("lock account administration: %w", err)
+	}
+	return nil
+}
+
+func requireActiveAdmin(ctx context.Context, tx pgx.Tx, actorID int64) error {
+	var role string
+	var enabled bool
+	err := tx.QueryRow(ctx, `SELECT role, enabled FROM accounts
+		WHERE id = $1 FOR UPDATE`, actorID).Scan(&role, &enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.ErrAdminRequired
+	}
+	if err != nil {
+		return fmt.Errorf("verify administrator account: %w", err)
+	}
+	if role != "admin" || !enabled {
+		return identity.ErrAdminRequired
+	}
+	return nil
+}
+
+func requireAnotherActiveAdmin(ctx context.Context, tx pgx.Tx) error {
+	var activeAdmins int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM accounts
+		WHERE role = 'admin' AND enabled`).Scan(&activeAdmins); err != nil {
+		return fmt.Errorf("count active administrator accounts: %w", err)
+	}
+	if activeAdmins <= 1 {
+		return identity.ErrLastAdmin
+	}
+	return nil
+}
+
+func insertAdminAudit(
+	ctx context.Context,
+	tx pgx.Tx,
+	actorID, targetID int64,
+	action string,
+	details []byte,
+) error {
+	if _, err := tx.Exec(ctx, `INSERT INTO admin_audit_log (
+		actor_account_id, target_account_id, action, details
+	) VALUES ($1, $2, $3, $4)`, actorID, targetID, action, details); err != nil {
+		return fmt.Errorf("record administrator action: %w", err)
+	}
+	return nil
+}
+
 func (s *IdentityStore) AccountByEmail(ctx context.Context, email string) (identity.Account, error) {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	account, err := scanAccount(s.pool.QueryRow(queryCtx, `SELECT
-		id, email, role, password_hash, enabled,
-		totp_secret_ciphertext, totp_nonce, totp_enrolled_at IS NOT NULL,
+		id, email, role, password_hash, enabled, totp_required,
+		totp_secret_ciphertext, totp_nonce, totp_enrolled_at,
 		last_totp_step, locked_until
 		FROM accounts WHERE email = $1`, email))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -111,6 +406,25 @@ func (s *IdentityStore) CreatePartialSession(
 	accountID int64,
 	now, partialExpiresAt time.Time,
 ) error {
+	return s.createSession(ctx, previousHash, tokenHash, accountID, now, &partialExpiresAt)
+}
+
+func (s *IdentityStore) CreateSession(
+	ctx context.Context,
+	previousHash, tokenHash []byte,
+	accountID int64,
+	now time.Time,
+) error {
+	return s.createSession(ctx, previousHash, tokenHash, accountID, now, nil)
+}
+
+func (s *IdentityStore) createSession(
+	ctx context.Context,
+	previousHash, tokenHash []byte,
+	accountID int64,
+	now time.Time,
+	partialExpiresAt *time.Time,
+) error {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	tx, err := s.pool.Begin(queryCtx)
@@ -129,10 +443,10 @@ func (s *IdentityStore) CreatePartialSession(
 	) VALUES ($1, $2, $3, $3, $4, $5)`,
 		tokenHash, accountID, now, now.Add(8*time.Hour), partialExpiresAt,
 	); err != nil {
-		return fmt.Errorf("create partial sign-in session: %w", err)
+		return fmt.Errorf("create sign-in session: %w", err)
 	}
 	if err := tx.Commit(queryCtx); err != nil {
-		return fmt.Errorf("commit partial sign-in session: %w", err)
+		return fmt.Errorf("commit sign-in session: %w", err)
 	}
 	return nil
 }
@@ -143,7 +457,7 @@ func (s *IdentityStore) LoadSession(ctx context.Context, tokenHash []byte, now t
 	var session identity.Session
 	var enrolledAt *time.Time
 	err := s.pool.QueryRow(queryCtx, `SELECT
-		a.id, a.email, a.role, a.password_hash, a.enabled,
+		a.id, a.email, a.role, a.password_hash, a.enabled, a.totp_required,
 		a.totp_secret_ciphertext, a.totp_nonce, a.totp_enrolled_at, a.last_totp_step, a.locked_until,
 		s.created_at, s.last_seen_at, s.expires_at, s.partial_expires_at
 		FROM auth_sessions s JOIN accounts a ON a.id = s.account_id
@@ -153,6 +467,7 @@ func (s *IdentityStore) LoadSession(ctx context.Context, tokenHash []byte, now t
 		&session.Account.Role,
 		&session.Account.PasswordHash,
 		&session.Account.Enabled,
+		&session.Account.TOTPRequired,
 		&session.Account.TOTPSecretCiphertext,
 		&session.Account.TOTPNonce,
 		&enrolledAt,
@@ -249,7 +564,7 @@ func (s *IdentityStore) CompleteTOTP(
 	var account identity.Account
 	var enrolledAt, partialExpiresAt *time.Time
 	err = tx.QueryRow(queryCtx, `SELECT
-		a.id, a.email, a.role, a.password_hash, a.enabled,
+		a.id, a.email, a.role, a.password_hash, a.enabled, a.totp_required,
 		a.totp_secret_ciphertext, a.totp_nonce, a.totp_enrolled_at, a.last_totp_step, a.locked_until,
 		s.partial_expires_at
 		FROM auth_sessions s JOIN accounts a ON a.id = s.account_id
@@ -260,6 +575,7 @@ func (s *IdentityStore) CompleteTOTP(
 		&account.Role,
 		&account.PasswordHash,
 		&account.Enabled,
+		&account.TOTPRequired,
 		&account.TOTPSecretCiphertext,
 		&account.TOTPNonce,
 		&enrolledAt,
@@ -411,6 +727,7 @@ func scanAccount(row pgx.Row) (identity.Account, error) {
 		&account.Role,
 		&account.PasswordHash,
 		&account.Enabled,
+		&account.TOTPRequired,
 		&account.TOTPSecretCiphertext,
 		&account.TOTPNonce,
 		&enrolledAt,

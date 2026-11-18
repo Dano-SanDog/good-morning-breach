@@ -8,13 +8,20 @@ import (
 )
 
 var (
-	ErrNotFound     = errors.New("identity record not found")
-	ErrAdminExists  = errors.New("an administrator already exists")
-	ErrCredentials  = errors.New("email, password, or code is incorrect")
-	ErrSession      = errors.New("session is invalid")
-	ErrOTPReplay    = errors.New("one-time code has already been used")
-	ErrTOTPEnrolled = errors.New("time-based code is already enrolled")
-	ErrTOTPSetup    = errors.New("time-based code setup is not pending")
+	ErrNotFound             = errors.New("identity record not found")
+	ErrAdminExists          = errors.New("an administrator already exists")
+	ErrCredentials          = errors.New("email, password, or code is incorrect")
+	ErrSession              = errors.New("session is invalid")
+	ErrOTPReplay            = errors.New("one-time code has already been used")
+	ErrTOTPEnrolled         = errors.New("time-based code is already enrolled")
+	ErrTOTPSetup            = errors.New("time-based code setup is not pending")
+	ErrAdminRequired        = errors.New("administrator role required")
+	ErrAccountExists        = errors.New("account already exists")
+	ErrLastAdmin            = errors.New("the last active administrator cannot be removed")
+	ErrSelfManagement       = errors.New("an administrator cannot disable, delete, or demote their own account")
+	ErrInvalidEmail         = errors.New("enter a valid email address")
+	ErrInvalidRole          = errors.New("account role must be admin or user")
+	ErrInvalidAccountUpdate = errors.New("provide a valid role or enabled status change")
 )
 
 type Account struct {
@@ -23,6 +30,7 @@ type Account struct {
 	Role                 string
 	PasswordHash         string
 	Enabled              bool
+	TOTPRequired         bool
 	TOTPSecretCiphertext []byte
 	TOTPNonce            []byte
 	TOTPEnrolled         bool
@@ -36,6 +44,25 @@ type Session struct {
 	LastSeenAt       time.Time
 	ExpiresAt        time.Time
 	PartialExpiresAt *time.Time
+}
+
+type ManagedAccount struct {
+	ID           int64     `json:"id"`
+	Email        string    `json:"email"`
+	Role         string    `json:"role"`
+	Enabled      bool      `json:"enabled"`
+	TOTPRequired bool      `json:"totpRequired"`
+	TOTPEnrolled bool      `json:"totpEnrolled"`
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+type AdminAuditRecord struct {
+	ID              int64     `json:"id"`
+	ActorAccountID  int64     `json:"actorAccountId"`
+	TargetAccountID int64     `json:"targetAccountId"`
+	Action          string    `json:"action"`
+	Details         string    `json:"details"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 type AttackTechnique struct {
@@ -72,9 +99,15 @@ type Story struct {
 
 type Store interface {
 	CreateAdmin(context.Context, string, string) (int64, error)
+	ListAccounts(context.Context) ([]ManagedAccount, error)
+	CreateAccount(context.Context, int64, string, string, string) (ManagedAccount, error)
+	UpdateAccount(context.Context, int64, int64, *string, *bool) error
+	DeleteAccount(context.Context, int64, int64) error
+	ListAdminAudit(context.Context) ([]AdminAuditRecord, error)
 	AccountByEmail(context.Context, string) (Account, error)
 	RecordFailedLogin(context.Context, int64, time.Time) (bool, error)
 	CreatePartialSession(context.Context, []byte, []byte, int64, time.Time, time.Time) error
+	CreateSession(context.Context, []byte, []byte, int64, time.Time) error
 	LoadSession(context.Context, []byte, time.Time) (Session, error)
 	TouchSession(context.Context, []byte, time.Time) error
 	BeginTOTPSetup(context.Context, []byte, int64, []byte, []byte, time.Time) error

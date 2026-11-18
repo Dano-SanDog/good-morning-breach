@@ -34,6 +34,12 @@ var cisaAdvisoriesMigration string
 //go:embed migrations/008_eff_deeplinks.sql
 var effDeeplinksMigration string
 
+//go:embed migrations/009_admin_management.sql
+var adminManagementMigration string
+
+//go:embed migrations/010_per_account_totp_requirement.sql
+var perAccountTOTPRequirementMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -50,6 +56,8 @@ var migrations = []migration{
 	{version: 6, sql: certFRMigration},
 	{version: 7, sql: cisaAdvisoriesMigration},
 	{version: 8, sql: effDeeplinksMigration},
+	{version: 9, sql: adminManagementMigration},
+	{version: 10, sql: perAccountTOTPRequirementMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

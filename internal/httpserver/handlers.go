@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
+	"strconv"
 	"unicode/utf8"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
@@ -32,6 +33,11 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.POST("/api/auth/totp/login", requireCSRF(), api.completeTOTPLogin)
 	router.POST("/api/auth/logout", requireCSRF(), api.logout)
 	router.GET("/api/stories", api.stories)
+	router.GET("/api/admin/accounts", api.adminAccounts)
+	router.POST("/api/admin/accounts", requireCSRF(), api.createAccount)
+	router.PATCH("/api/admin/accounts/:id", requireCSRF(), api.updateAccount)
+	router.DELETE("/api/admin/accounts/:id", requireCSRF(), api.deleteAccount)
+	router.GET("/api/admin/audit", api.adminAudit)
 
 	fileServer := http.StripPrefix("/", http.FileServer(http.FS(assets)))
 	router.GET("/", func(c *gin.Context) {
@@ -74,6 +80,11 @@ func (h *apiHandlers) login(c *gin.Context) {
 	}
 	if err != nil {
 		writeInternalError(c, err)
+		return
+	}
+	if result.User != nil {
+		setSessionCookie(c, result.Token, 8*60*60)
+		c.JSON(http.StatusOK, result.User)
 		return
 	}
 	setSessionCookie(c, result.Token, 5*60)
@@ -227,6 +238,145 @@ func (h *apiHandlers) stories(c *gin.Context) {
 		stories = []identity.Story{}
 	}
 	c.JSON(http.StatusOK, gin.H{"stories": stories})
+}
+
+func (h *apiHandlers) adminAccounts(c *gin.Context) {
+	token, _ := c.Cookie(sessionCookieName)
+	accounts, err := h.identity.ListAccounts(c.Request.Context(), token)
+	if err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	if accounts == nil {
+		accounts = []identity.ManagedAccount{}
+	}
+	c.JSON(http.StatusOK, gin.H{"accounts": accounts})
+}
+
+func (h *apiHandlers) createAccount(c *gin.Context) {
+	var request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := decodeStrictJSON(c, &request); err != nil ||
+		len(request.Email) > 254 || !utf8.ValidString(request.Password) ||
+		utf8.RuneCountInString(request.Password) > 256 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	account, err := h.identity.CreateAccount(
+		c.Request.Context(),
+		token,
+		request.Email,
+		request.Password,
+		request.Role,
+	)
+	if err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, account)
+}
+
+func (h *apiHandlers) updateAccount(c *gin.Context) {
+	targetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || targetID < 1 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID."})
+		return
+	}
+	var request struct {
+		Role    *string `json:"role"`
+		Enabled *bool   `json:"enabled"`
+	}
+	if err := decodeStrictJSON(c, &request); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	if err := h.identity.UpdateAccount(c.Request.Context(), token, targetID, request.Role, request.Enabled); err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *apiHandlers) deleteAccount(c *gin.Context) {
+	targetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || targetID < 1 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID."})
+		return
+	}
+	var request struct{}
+	if err := decodeStrictJSON(c, &request); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	if err := h.identity.DeleteAccount(c.Request.Context(), token, targetID); err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *apiHandlers) adminAudit(c *gin.Context) {
+	token, _ := c.Cookie(sessionCookieName)
+	records, err := h.identity.ListAdminAudit(c.Request.Context(), token)
+	if err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	if records == nil {
+		records = []identity.AdminAuditRecord{}
+	}
+	c.JSON(http.StatusOK, gin.H{"events": records})
+}
+
+func writeAdminError(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, identity.ErrSession):
+		logAuthorizationDenial(c)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
+	case errors.Is(err, identity.ErrAdminRequired):
+		logAuthorizationDenial(c)
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Administrator role required."})
+	case errors.Is(err, identity.ErrNotFound):
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Account not found."})
+	case errors.Is(err, identity.ErrAccountExists):
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "An account with that email already exists."})
+	case errors.Is(err, identity.ErrLastAdmin):
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, identity.ErrSelfManagement):
+		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": err.Error()})
+	case errors.Is(err, identity.ErrInvalidEmail),
+		errors.Is(err, identity.ErrInvalidRole),
+		errors.Is(err, identity.ErrInvalidAccountUpdate),
+		errors.Is(err, identity.ErrPasswordLength),
+		errors.Is(err, identity.ErrPasswordBreached):
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	case errors.Is(err, identity.ErrPasswordCheckUnavailable):
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Password security check is unavailable. Try again later."})
+	default:
+		return false
+	}
+	return true
 }
 
 func logAuthorizationDenial(c *gin.Context) {

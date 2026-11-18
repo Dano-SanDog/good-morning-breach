@@ -423,6 +423,141 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.admin-panel {
+  margin: 32px 0;
+  padding: 24px;
+  border: 1px solid #d9d7e5;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.admin-panel h2 {
+  font-size: 24px;
+}
+
+.admin-panel .dashboard-heading {
+  margin-bottom: 16px;
+}
+
+.account-create-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) 140px auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.account-create-form label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.account-create-form input,
+.account-create-form select,
+.admin-table select {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #7c7898;
+  border-radius: 3px;
+  background: #fff;
+  color: #1d1a3b;
+  font: inherit;
+}
+
+.account-create-form .primary-button {
+  margin: 0;
+  min-height: 44px;
+}
+
+.admin-table-scroll {
+  overflow-x: auto;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 10px 8px;
+  border-bottom: 1px solid #d9d7e5;
+  vertical-align: middle;
+}
+
+.admin-table thead th {
+  color: #4e4a6b;
+  font-size: 14px;
+}
+
+.admin-table tbody th {
+  overflow-wrap: anywhere;
+}
+
+.admin-table select {
+  min-height: 40px;
+}
+
+.admin-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-button {
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid #2e2a8c;
+  border-radius: 4px;
+  background: #fff;
+  color: #2e2a8c;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.table-button:hover:not(:disabled) {
+  background: #e3e1f2;
+}
+
+.danger-button {
+  border-color: #a3142e;
+  color: #8d1027;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: #fbe9ec;
+}
+
+.audit-heading {
+  margin: 24px 0 10px;
+  font-size: 20px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.audit-list li {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1fr) minmax(160px, auto);
+  gap: 4px 12px;
+  padding: 12px;
+  border: 1px solid #d9d7e5;
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+
+.audit-list code {
+  grid-column: 1 / -1;
+  color: #4e4a6b;
+}
+
 @media (max-width: 640px) {
   .auth-panel {
     padding: 28px 20px;
@@ -473,5 +608,21 @@ button:disabled {
   .story-metadata {
     flex-direction: column;
     gap: 4px;
+  }
+
+  .admin-panel {
+    padding: 16px 12px;
+  }
+
+  .account-create-form {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .audit-list code {
+    grid-column: auto;
   }
 }

@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Full source coverage, admin-editable categories, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated recent-stories dashboard, and administrator account management with an audit log. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -86,13 +86,17 @@ The full design system is in [DESIGN.md](DESIGN.md). A static preview of the pal
 
 This is a closed service. Every page needs a login, and there is no self sign-up.
 
-- Login: email address, password (at least 12 characters, not on a breached-password list), and a TOTP one-time code, set up at first login.
+- Login: email address and password (at least 12 characters, not on a breached-password list). TOTP is required by default, but can be disabled for an individual account.
 - An account is blocked for 15 minutes after 5 failed logins in 15 minutes. Sessions end after 30 minutes of inactivity.
 
 | Role | Capabilities |
 | --- | --- |
 | **admin** | Everything a user can do, plus manage users, roles, data sources, and categories, and view source status and the admin action log |
 | **user** | View the dashboard and manage their own alert settings and profile |
+
+### Account administration
+
+Admins can create accounts with an initial password, change roles, disable or re-enable accounts, delete accounts, and review the 200 most recent administrator actions. New passwords must be at least 12 characters and pass the HIBP Pwned Passwords check; TOTP is required for new accounts by default. Administrators cannot disable, demote, or delete their own account, and the last enabled administrator cannot be removed. Disabling an account revokes its active sessions.
 
 ## Development
 
@@ -125,7 +129,7 @@ After migrations are applied and the client dependencies are installed:
    ```
 
    Keep both files outside the repository. The server refuses to start unless the private key is a regular file with mode `0600`.
-3. Create the first admin interactively: `go run ./cmd/bootstrap`. Enter the email normally and the password at the hidden prompt. The password must be at least 12 characters and not appear in the HIBP Pwned Passwords service. An authenticator app is enrolled on first sign-in.
+3. Create the first admin interactively: `go run ./cmd/bootstrap`. Enter the email normally and the password at the hidden prompt. The password must be at least 12 characters and not appear in the HIBP Pwned Passwords service. Accounts with TOTP required enroll an authenticator on first sign-in.
 4. (Optional) Run an immediate one-shot collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. The server also checks for due stories at startup and periodically while running.
 5. Start the server:
 
@@ -137,7 +141,7 @@ After migrations are applied and the client dependencies are installed:
 
 6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, and EFF from the last 24 hours (up to 100). Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
 
-The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
+The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
 ## Roadmap
 
@@ -152,7 +156,7 @@ The migration and bootstrap commands use the local database owner; the server an
 - [ ] Add the remaining approved sources (CERT-EU, SANS ISC, CERT-FR, CISA advisories, and EFF Deeplinks are implemented)
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
-- [ ] Complete authentication and roles (admin/user management, password reset, and account administration)
+- [ ] Complete authentication and roles (admin account management and audit log are implemented; password reset remains)
 - [ ] Complete the dashboard (filters, risk analysis, ATT&CK mapping, Radar, and admin source status)
 - [ ] Add alert delivery (email, SMS, Slack)
 - [ ] Apply for Reddit API access

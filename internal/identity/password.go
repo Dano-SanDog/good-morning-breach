@@ -28,8 +28,9 @@ const (
 )
 
 var (
-	ErrPasswordLength   = errors.New("password must be between 12 and 256 characters")
-	ErrPasswordBreached = errors.New("password appears in the known-breached password list")
+	ErrPasswordLength           = errors.New("password must be between 12 and 256 characters")
+	ErrPasswordBreached         = errors.New("password appears in the known-breached password list")
+	ErrPasswordCheckUnavailable = errors.New("password breach check unavailable")
 )
 
 var dummyPasswordHash = encodePasswordHash(
@@ -117,17 +118,17 @@ func checkHIBPAt(ctx context.Context, client *http.Client, password, endpoint st
 	request.Header.Set("Add-Padding", "true")
 	response, err := client.Do(request)
 	if err != nil {
-		return errors.New("password breach check unavailable")
+		return ErrPasswordCheckUnavailable
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return errors.New("password breach check unavailable")
+		return ErrPasswordCheckUnavailable
 	}
 
 	const maxResponseBytes = 4 << 20
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(body) > maxResponseBytes {
-		return errors.New("invalid password breach check response")
+		return ErrPasswordCheckUnavailable
 	}
 	for _, line := range bytes.Split(body, []byte{'\n'}) {
 		line = bytes.TrimSpace(line)
@@ -136,17 +137,17 @@ func checkHIBPAt(ctx context.Context, client *http.Client, password, endpoint st
 		}
 		entry := strings.SplitN(string(line), ":", 2)
 		if len(entry) != 2 || len(entry[0]) != 35 {
-			return errors.New("invalid password breach check response")
+			return ErrPasswordCheckUnavailable
 		}
 		entrySuffix := []byte(strings.ToUpper(entry[0]))
 		for _, character := range entrySuffix {
 			if (character < '0' || character > '9') && (character < 'A' || character > 'F') {
-				return errors.New("invalid password breach check response")
+				return ErrPasswordCheckUnavailable
 			}
 		}
 		count, err := strconv.ParseUint(entry[1], 10, 64)
 		if err != nil {
-			return errors.New("invalid password breach check response")
+			return ErrPasswordCheckUnavailable
 		}
 		if count > 0 && subtle.ConstantTimeCompare(entrySuffix, suffix) == 1 {
 			return ErrPasswordBreached

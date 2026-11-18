@@ -12,7 +12,7 @@ Version pins were checked against official release and registry sources on 2026-
 - **Server framework:** Go with Gin (explicit choice).
 - **Client frameworks:** ReactJS (explicit choice), built as a single-page app and served by the Go server.
 - **API style:** a private JSON-over-HTTPS API used only by the bundled client. It is not a public API.
-- **Authentication and session model:** email, password, and TOTP (FR-6.5). A server-side session referenced by a cookie, with a 30-minute idle timeout and an 8-hour absolute timeout.
+- **Authentication and session model:** email and password; TOTP is required by default per account and can be disabled for an individual account. A server-side session referenced by a cookie, with a 30-minute idle timeout and an 8-hour absolute timeout.
 - **Outbound calls:** collection sources, MITRE, SMTP, Twilio, Slack webhooks, and the HIBP range API. There are no inbound connections from outside the machine.
 - **Authorization model:** two roles, admin and user (FR-6.4), plus ownership checks on per-user settings (FR-6.12). Enforced in the server only.
 - **Data store and expected scale:** PostgreSQL, one local instance on the same machine (CONFIRMED, AQ-2). Scale: at least 10 accounts (NFR-2.1) and 365 days of stories (FR-10.1). Story volume per day is UNKNOWN.
@@ -51,13 +51,13 @@ The client does not use a router, a state library, or a UI kit. The four screens
 ## Current Scaffold
 
 - `cmd/server` starts a loopback-only HTTPS server. It requires `GB_TLS_CERT_FILE` and `GB_TLS_KEY_FILE`; the certificate must be locally trusted and cover only `localhost`, `127.0.0.1`, and `::1`, and the private key must be outside the repository with mode `0600`.
-- `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, security headers, CSRF checks, and generic error responses. Its API currently supports sign-in, authenticator enrollment, session activity/logout, and listing recent stories.
-- `internal/identity` implements first-admin bootstrap, Argon2id password hashing with a HIBP range check, TOTP enrollment and verification, failed-login lockout, and hashed server-side sessions. User management and password resets remain future work.
+- `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, security headers, CSRF checks, and generic error responses. Its API supports sign-in, authenticator enrollment, session activity/logout, recent stories, and admin-only account and audit-log endpoints.
+- `internal/identity` implements first-admin bootstrap, Argon2id password hashing with a HIBP range check, per-account TOTP enrollment and verification, failed-login lockout, hashed server-side sessions, and administrator account management. Password resets remain future work.
 - `internal/applog` writes structured JSON logs to stdout and private daily files under the OS user configuration directory. The log directory is `0700`; log files are `0600`; files older than 30 days are removed.
 - `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` uses the restricted `gb_app` role for a one-shot run. `cmd/server` checks enabled sources at startup and hourly while running; a macOS LaunchAgent can also run `cmd/collect` at login and hourly while the server is stopped. Both collection paths share a PostgreSQL advisory lock.
 - `internal/ingest` fetches the seeded CERT-EU, SANS ISC, CERT-FR, CISA, and EFF RSS feeds, respects each persisted poll interval, stores only normalized headlines and links, and records failures. `internal/store/postgres` deduplicates stories globally by canonical link and keeps source associations and collection status.
 - The collector's shared outbound client blocks private and special-use IP addresses at connection time, does not use proxies or follow redirects, and has bounded timeouts. Feed responses are capped at 10 MiB.
-- `src` provides sign-in, first-login authenticator enrollment, logout, and a recent-stories view. Story titles are rendered as text and external links are scheme-checked.
+- `src` provides sign-in, first-login authenticator enrollment, logout, a recent-stories view, and admin account/audit management. Story titles are rendered as text and external links are scheme-checked.
 - `npm run build` type-checks and creates the client bundle embedded by the Go process. `npm run dev` starts Vite on localhost but does not proxy the API; use the integrated server to test the full path.
 
 ## Components and Flows
@@ -66,10 +66,10 @@ The HTTP API and hourly collection scheduler run in one Go process against one l
 
 | Component | Responsibility | Business rules enforced | Data owned | Requirement IDs | Status |
 |---|---|---|---|---|---|
-| Web client (React) | Sign-in, TOTP enrollment, logout, and recent stories | Displays server-authorized data; renders collected content as text | None | FR-5, DESIGN.md | PARTIAL |
-| HTTP API (Gin) | Authentication routes, session lifecycle, CSRF, story listing, and static assets | Protects story reads and validates state-changing requests | None | FR-6.1, FR-6.2, NFR-3.1 | PARTIAL |
-| Identity | Initial admin, password/TOTP authentication, lockout, and sessions | Password checks, TOTP replay rejection, session timeouts | Accounts, credential hashes, encrypted TOTP secrets, sessions | FR-6, FR-9 | PARTIAL |
-| Audit log | Records admin actions and lets admins read them | Append-only | Admin action records | FR-9.6 | PLANNED |
+| Web client (React) | Sign-in, TOTP enrollment, logout, recent stories, and admin account/audit management | Displays server-authorized data; renders collected content as text; requires typed email to confirm account deletion | None | FR-5, FR-9.1 to FR-9.6, DESIGN.md | PARTIAL |
+| HTTP API (Gin) | Authentication routes, session lifecycle, CSRF, story listing, admin account/audit endpoints, and static assets | Enforces admin authorization, protects story reads, and validates state-changing requests | None | FR-6.1, FR-6.2, FR-9.1 to FR-9.6, NFR-3.1 | PARTIAL |
+| Identity | Initial admin, password authentication, optional per-account TOTP, lockout, sessions, and account management | Password checks, TOTP replay rejection when required, session timeouts, no self-removal, and last-active-admin protection | Accounts, credential hashes, encrypted TOTP secrets, sessions | FR-6, FR-9 | PARTIAL |
+| Audit log | Records account creation, updates, and deletion, and lets admins read the 200 most recent records | Append-only application permissions; account IDs retained without email addresses | Admin action records | FR-9.6 | PARTIAL |
 | Source registry | Seeded CERT-EU, SANS ISC, CERT-FR, CISA, and EFF source records and license metadata; admin editing remains unimplemented | Source HTTPS validation, persisted poll intervals, per-story attribution; full content-rights gate and source administration remain unimplemented | Sources, license records, source status | FR-1.5, FR-1.6, FR-8.1 to FR-8.3, FR-8.5, FR-8.8, FR-8.9 | PARTIAL |
 | Collector (job) | Fetches the seeded CERT-EU, SANS ISC, CERT-FR, CISA, and EFF RSS sources | Normalizes and de-duplicates stories; records failures; respects each source's poll interval | Collection results | FR-1, FR-8.5 to FR-8.7 | PARTIAL |
 | Analyzer (job) | Applies deterministic headline keyword rules and pinned ATT&CK technique-name/alias phrase matching | Assigns baseline categories, scores, and exact phrase tags to collected headlines; structured feed data, permitted article text, semantic ATT&CK mapping, summaries, and CVE links remain unimplemented | Category, sentiment, risk, and technique assignments | FR-2.1 to FR-2.4, FR-3, FR-7.1, FR-7.2 | PARTIAL |
@@ -84,7 +84,7 @@ The HTTP API and hourly collection scheduler run in one Go process against one l
 
 1. **Collect (current):** server scheduler (startup + hourly), macOS LaunchAgent (login + hourly), or manual `cmd/collect` → Collector → CERT-EU, SANS ISC, CERT-FR, CISA, and EFF RSS (HTTPS) → Collector validates and normalizes → Story store. A PostgreSQL advisory lock serializes runs; persisted 24-hour, 30-minute, and one-hour source intervals prevent unnecessary fetches. Additional sources remain future work.
 2. **Analyze (current baseline):** the Collector applies deterministic keyword rules and pinned ATT&CK technique-name/alias phrase matching to collected headlines, then persists categories, risk, sentiment, and matched technique tags. Server startup backfills unanalysed stories in bounded batches. Structured feed data, permitted article text, semantic ATT&CK mapping, summaries, and CVE links remain future work.
-3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, or Source registry → JSON → React renders it as text.
+3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, Source registry, or admin audit store → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.
 5. **Administer:** browser → HTTP API → Identity (admin check) → Source registry or Identity → Audit log.
 

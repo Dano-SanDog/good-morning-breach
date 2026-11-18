@@ -28,6 +28,7 @@ func TestFirstLoginEnrollsTOTPAndRejectsCodeReplay(t *testing.T) {
 			Role:         "admin",
 			PasswordHash: passwordHash,
 			Enabled:      true,
+			TOTPRequired: true,
 			LastTOTPStep: -1,
 		},
 		sessions: make(map[string]Session),
@@ -99,6 +100,44 @@ func TestFirstLoginEnrollsTOTPAndRejectsCodeReplay(t *testing.T) {
 	}
 }
 
+func TestPasswordLoginWithoutTOTPRequirementCreatesAuthenticatedSession(t *testing.T) {
+	passwordHash, err := HashPassword("a sufficiently long password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryIdentityStore{
+		account: Account{
+			ID:           4,
+			Email:        "admin@example.test",
+			Role:         "admin",
+			PasswordHash: passwordHash,
+			Enabled:      true,
+			TOTPRequired: false,
+		},
+		sessions: make(map[string]Session),
+	}
+	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.PasswordLogin(context.Background(), "admin@example.test", "a sufficiently long password", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.User == nil || result.User.Email != "admin@example.test" || result.Next != "" {
+		t.Fatalf("password-only login result = %#v", result)
+	}
+	sessionHash := hashSessionToken(result.Token)
+	session := store.sessions[hex.EncodeToString(sessionHash[:])]
+	if session.PartialExpiresAt != nil {
+		t.Fatal("password-only login created a partial session")
+	}
+	if _, err := service.CurrentUser(context.Background(), result.Token); err != nil {
+		t.Fatalf("password-only session is not authenticated: %v", err)
+	}
+}
+
 func TestPasswordLoginFailureLogsOneRedactedSecurityEvent(t *testing.T) {
 	passwordHash, err := HashPassword("a sufficiently long password")
 	if err != nil {
@@ -139,14 +178,138 @@ func TestPasswordLoginFailureLogsOneRedactedSecurityEvent(t *testing.T) {
 	}
 }
 
+func TestAdminAccountManagementRequiresAdminAndProtectsCurrentAccount(t *testing.T) {
+	adminService, adminStore, adminToken := serviceWithAuthenticatedAccount(t, "admin")
+	adminStore.managedAccounts = []ManagedAccount{{
+		ID: 2, Email: "user@example.test", Role: "user", Enabled: true,
+	}}
+	accounts, err := adminService.ListAccounts(context.Background(), adminToken)
+	if err != nil || len(accounts) != 1 || accounts[0].ID != 2 {
+		t.Fatalf("ListAccounts() = %#v, %v", accounts, err)
+	}
+
+	demote := "user"
+	if err := adminService.UpdateAccount(context.Background(), adminToken, 1, &demote, nil); !errors.Is(err, ErrSelfManagement) {
+		t.Fatalf("self-demotion error = %v; want ErrSelfManagement", err)
+	}
+	disable := false
+	if err := adminService.UpdateAccount(context.Background(), adminToken, 1, nil, &disable); !errors.Is(err, ErrSelfManagement) {
+		t.Fatalf("self-disable error = %v; want ErrSelfManagement", err)
+	}
+	if err := adminService.DeleteAccount(context.Background(), adminToken, 1); !errors.Is(err, ErrSelfManagement) {
+		t.Fatalf("self-deletion error = %v; want ErrSelfManagement", err)
+	}
+
+	userService, _, userToken := serviceWithAuthenticatedAccount(t, "user")
+	if _, err := userService.ListAccounts(context.Background(), userToken); !errors.Is(err, ErrAdminRequired) {
+		t.Fatalf("non-admin account listing error = %v; want ErrAdminRequired", err)
+	}
+	if _, err := userService.CreateAccount(context.Background(), userToken, "user2@example.test", "a sufficiently long password", "user"); !errors.Is(err, ErrAdminRequired) {
+		t.Fatalf("non-admin account creation error = %v; want ErrAdminRequired", err)
+	}
+}
+
+func TestCreateAccountValidatesEmailAndRoleBeforePasswordCheck(t *testing.T) {
+	service, _, token := serviceWithAuthenticatedAccount(t, "admin")
+	if _, err := service.CreateAccount(context.Background(), token, "not-an-email", "short", "user"); !errors.Is(err, ErrInvalidEmail) {
+		t.Fatalf("invalid email error = %v; want ErrInvalidEmail", err)
+	}
+	if _, err := service.CreateAccount(context.Background(), token, "user@example.test", "short", "owner"); !errors.Is(err, ErrInvalidRole) {
+		t.Fatalf("invalid role error = %v; want ErrInvalidRole", err)
+	}
+}
+
+func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memoryIdentityStore, string) {
+	t.Helper()
+	store := &memoryIdentityStore{
+		account: Account{
+			ID:           1,
+			Email:        "admin@example.test",
+			Role:         role,
+			Enabled:      true,
+			TOTPRequired: true,
+			TOTPEnrolled: true,
+		},
+		sessions: make(map[string]Session),
+	}
+	token := "valid-test-session-token"
+	now := time.Now()
+	tokenHash := hashSessionToken(token)
+	store.sessions[hex.EncodeToString(tokenHash[:])] = Session{
+		Account:    store.account,
+		CreatedAt:  now,
+		LastSeenAt: now,
+		ExpiresAt:  now.Add(time.Hour),
+	}
+	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, store, token
+}
+
 type memoryIdentityStore struct {
-	account  Account
-	sessions map[string]Session
-	failures int
+	account         Account
+	sessions        map[string]Session
+	failures        int
+	managedAccounts []ManagedAccount
+	adminAudit      []AdminAuditRecord
+	nextAccountID   int64
 }
 
 func (s *memoryIdentityStore) CreateAdmin(context.Context, string, string) (int64, error) {
 	return 1, nil
+}
+
+func (s *memoryIdentityStore) ListAccounts(context.Context) ([]ManagedAccount, error) {
+	return s.managedAccounts, nil
+}
+
+func (s *memoryIdentityStore) CreateAccount(
+	_ context.Context,
+	_ int64,
+	email, _, role string,
+) (ManagedAccount, error) {
+	s.nextAccountID++
+	account := ManagedAccount{
+		ID: s.nextAccountID, Email: email, Role: role, Enabled: true, CreatedAt: time.Now(),
+	}
+	s.managedAccounts = append(s.managedAccounts, account)
+	return account, nil
+}
+
+func (s *memoryIdentityStore) UpdateAccount(
+	_ context.Context,
+	_, targetID int64,
+	role *string,
+	enabled *bool,
+) error {
+	for index := range s.managedAccounts {
+		if s.managedAccounts[index].ID == targetID {
+			if role != nil {
+				s.managedAccounts[index].Role = *role
+			}
+			if enabled != nil {
+				s.managedAccounts[index].Enabled = *enabled
+			}
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (s *memoryIdentityStore) DeleteAccount(_ context.Context, _, targetID int64) error {
+	for index := range s.managedAccounts {
+		if s.managedAccounts[index].ID == targetID {
+			s.managedAccounts = append(s.managedAccounts[:index], s.managedAccounts[index+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (s *memoryIdentityStore) ListAdminAudit(context.Context) ([]AdminAuditRecord, error) {
+	return s.adminAudit, nil
 }
 
 func (s *memoryIdentityStore) AccountByEmail(_ context.Context, email string) (Account, error) {
@@ -176,6 +339,24 @@ func (s *memoryIdentityStore) CreatePartialSession(
 		LastSeenAt:       now,
 		ExpiresAt:        now.Add(8 * time.Hour),
 		PartialExpiresAt: &partialExpiresAt,
+	}
+	return nil
+}
+
+func (s *memoryIdentityStore) CreateSession(
+	_ context.Context,
+	previousHash, tokenHash []byte,
+	_ int64,
+	now time.Time,
+) error {
+	if len(previousHash) > 0 {
+		delete(s.sessions, hex.EncodeToString(previousHash))
+	}
+	s.sessions[hex.EncodeToString(tokenHash)] = Session{
+		Account:    s.account,
+		CreatedAt:  now,
+		LastSeenAt: now,
+		ExpiresAt:  now.Add(8 * time.Hour),
 	}
 	return nil
 }

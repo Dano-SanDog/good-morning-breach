@@ -49,6 +49,7 @@ func (AuthenticatedUser) LogValue() slog.Value {
 type LoginResult struct {
 	Token string
 	Next  LoginStep
+	User  *AuthenticatedUser
 }
 
 type Challenge struct {
@@ -76,7 +77,7 @@ func NewService(store Store, dataKey []byte, client *http.Client) (*Service, err
 func (s *Service) CreateInitialAdmin(ctx context.Context, email, password string) error {
 	email = normalizeEmail(email)
 	if !validEmail(email) {
-		return errors.New("enter a valid email address")
+		return ErrInvalidEmail
 	}
 	if err := ValidateNewPassword(ctx, s.client, password); err != nil {
 		return err
@@ -91,6 +92,94 @@ func (s *Service) CreateInitialAdmin(ctx context.Context, email, password string
 	}
 	slog.Info("initial administrator created", "event", "admin_bootstrap", "account_id", accountID, "outcome", "success")
 	return nil
+}
+
+func (s *Service) ListAccounts(ctx context.Context, token string) ([]ManagedAccount, error) {
+	if _, err := s.requireAdmin(ctx, token); err != nil {
+		return nil, err
+	}
+	return s.store.ListAccounts(ctx)
+}
+
+func (s *Service) CreateAccount(
+	ctx context.Context,
+	token, email, password, role string,
+) (ManagedAccount, error) {
+	admin, err := s.requireAdmin(ctx, token)
+	if err != nil {
+		return ManagedAccount{}, err
+	}
+	email = normalizeEmail(email)
+	if !validEmail(email) {
+		return ManagedAccount{}, ErrInvalidEmail
+	}
+	if role != "admin" && role != "user" {
+		return ManagedAccount{}, ErrInvalidRole
+	}
+	if err := ValidateNewPassword(ctx, s.client, password); err != nil {
+		return ManagedAccount{}, err
+	}
+	passwordHash, err := HashPassword(password)
+	if err != nil {
+		return ManagedAccount{}, err
+	}
+	return s.store.CreateAccount(ctx, admin.AccountID, email, passwordHash, role)
+}
+
+func (s *Service) UpdateAccount(
+	ctx context.Context,
+	token string,
+	targetID int64,
+	role *string,
+	enabled *bool,
+) error {
+	admin, err := s.requireAdmin(ctx, token)
+	if err != nil {
+		return err
+	}
+	if targetID < 1 || (role == nil && enabled == nil) {
+		return ErrInvalidAccountUpdate
+	}
+	if role != nil && *role != "admin" && *role != "user" {
+		return ErrInvalidRole
+	}
+	if targetID == admin.AccountID &&
+		((role != nil && *role != "admin") || (enabled != nil && !*enabled)) {
+		return ErrSelfManagement
+	}
+	return s.store.UpdateAccount(ctx, admin.AccountID, targetID, role, enabled)
+}
+
+func (s *Service) DeleteAccount(ctx context.Context, token string, targetID int64) error {
+	admin, err := s.requireAdmin(ctx, token)
+	if err != nil {
+		return err
+	}
+	if targetID < 1 {
+		return ErrInvalidAccountUpdate
+	}
+	if targetID == admin.AccountID {
+		return ErrSelfManagement
+	}
+	return s.store.DeleteAccount(ctx, admin.AccountID, targetID)
+}
+
+func (s *Service) ListAdminAudit(ctx context.Context, token string) ([]AdminAuditRecord, error) {
+	if _, err := s.requireAdmin(ctx, token); err != nil {
+		return nil, err
+	}
+	return s.store.ListAdminAudit(ctx)
+}
+
+func (s *Service) requireAdmin(ctx context.Context, token string) (AuthenticatedUser, error) {
+	user, err := s.CurrentUser(ctx, token)
+	if err != nil {
+		return AuthenticatedUser{}, err
+	}
+	if user.Role != "admin" {
+		return AuthenticatedUser{}, ErrAdminRequired
+	}
+	return user, nil
 }
 
 func (s *Service) PasswordLogin(ctx context.Context, email, password, previousToken string) (LoginResult, error) {
@@ -127,6 +216,15 @@ func (s *Service) PasswordLogin(ctx context.Context, email, password, previousTo
 		previous := hashSessionToken(previousToken)
 		previousHash = previous[:]
 	}
+	if !account.TOTPRequired {
+		if err := s.store.CreateSession(ctx, previousHash, tokenHash[:], account.ID, now); err != nil {
+			return LoginResult{}, err
+		}
+		user := AuthenticatedUser{AccountID: account.ID, Email: account.Email, Role: account.Role}
+		slog.Info("sign-in succeeded", "event", "login_success", "account_id", account.ID, "outcome", "success")
+		return LoginResult{Token: rawToken, User: &user}, nil
+	}
+
 	next := LoginTOTP
 	if !account.TOTPEnrolled {
 		next = SetupTOTP
@@ -149,7 +247,8 @@ func (s *Service) BeginTOTPSetup(ctx context.Context, token string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if session.PartialExpiresAt == nil || session.Account.TOTPEnrolled || !session.Account.Enabled {
+	if session.PartialExpiresAt == nil || !session.Account.TOTPRequired ||
+		session.Account.TOTPEnrolled || !session.Account.Enabled {
 		return "", ErrTOTPSetup
 	}
 
@@ -187,7 +286,7 @@ func (s *Service) CompleteTOTP(ctx context.Context, token, code string, setup bo
 	if err != nil {
 		return AuthenticatedUser{}, "", err
 	}
-	if session.PartialExpiresAt == nil || !session.Account.Enabled {
+	if session.PartialExpiresAt == nil || !session.Account.TOTPRequired || !session.Account.Enabled {
 		return AuthenticatedUser{}, "", ErrSession
 	}
 	if setup == session.Account.TOTPEnrolled {
@@ -246,7 +345,9 @@ func (s *Service) CurrentUser(ctx context.Context, token string) (AuthenticatedU
 	if err != nil {
 		return AuthenticatedUser{}, err
 	}
-	if session.PartialExpiresAt != nil || !session.Account.TOTPEnrolled || !session.Account.Enabled {
+	if session.PartialExpiresAt != nil ||
+		(session.Account.TOTPRequired && !session.Account.TOTPEnrolled) ||
+		!session.Account.Enabled {
 		return AuthenticatedUser{}, ErrSession
 	}
 	return AuthenticatedUser{AccountID: session.Account.ID, Email: session.Account.Email, Role: session.Account.Role}, nil
@@ -257,7 +358,7 @@ func (s *Service) CurrentChallenge(ctx context.Context, token string) (Challenge
 	if err != nil {
 		return Challenge{}, err
 	}
-	if session.PartialExpiresAt == nil || !session.Account.Enabled {
+	if session.PartialExpiresAt == nil || !session.Account.TOTPRequired || !session.Account.Enabled {
 		return Challenge{}, ErrSession
 	}
 	next := LoginTOTP
