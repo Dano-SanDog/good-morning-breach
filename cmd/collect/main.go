@@ -46,20 +46,7 @@ func run() error {
 		return err
 	}
 	results, runErr := collector.Run(ctx)
-	for _, result := range results {
-		if result.Failure != "" {
-			slog.Error("source collection failed", "source_id", result.SourceID, "cause", result.Failure)
-		} else if result.Skipped {
-			slog.Info("source collection skipped", "source_id", result.SourceID, "reason", "poll interval has not elapsed")
-		} else {
-			slog.Info("source collection succeeded",
-				"source_id", result.SourceID,
-				"items_received", result.ItemsReceived,
-				"items_saved", result.ItemsSaved,
-				"items_skipped", result.ItemsSkipped,
-			)
-		}
-	}
+	ingest.LogResults(results)
 	if runErr != nil {
 		return runErr
 	}

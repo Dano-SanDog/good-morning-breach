@@ -7,32 +7,44 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/httpserver"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
+	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
 	"github.com/Dano-SanDog/good-morning-breach/internal/secrets"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
 )
 
-const defaultDatabaseURL = "host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable"
+const (
+	defaultDatabaseURL      = "host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable"
+	collectionCheckInterval = time.Hour
+	serverShutdownTimeout   = 10 * time.Second
+)
 
 func main() {
 	if err := applog.Configure(); err != nil {
 		fmt.Fprintf(os.Stderr, "configure application logs: %v\n", err)
 		os.Exit(1)
 	}
+	if err := run(); err != nil {
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	certFile := os.Getenv("GB_TLS_CERT_FILE")
 	keyFile := os.Getenv("GB_TLS_KEY_FILE")
 	if certFile == "" || keyFile == "" {
-		slog.Error("GB_TLS_CERT_FILE and GB_TLS_KEY_FILE are required")
-		os.Exit(1)
+		return errors.New("GB_TLS_CERT_FILE and GB_TLS_KEY_FILE are required")
 	}
 	if err := httpserver.ValidatePrivateKeyFile(keyFile); err != nil {
-		slog.Error("TLS private key permissions are invalid", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("TLS private key permissions are invalid: %w", err)
 	}
 
 	startupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -43,36 +55,74 @@ func main() {
 	}
 	pool, err := postgres.OpenLocalPool(startupCtx, databaseURL)
 	if err != nil {
-		slog.Error("connect to local database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("connect to local database: %w", err)
 	}
 	defer pool.Close()
 
 	dataKey, err := secrets.LoadDataKey()
 	if err != nil {
-		slog.Error("load application data key", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load application data key: %w", err)
 	}
 	identityStore := postgres.NewIdentityStore(pool)
 	identityService, err := identity.NewService(identityStore, dataKey, egress.NewHTTPClient())
 	if err != nil {
-		slog.Error("configure identity service", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("configure identity service: %w", err)
 	}
 	assets, err := httpserver.EmbeddedAssets()
 	if err != nil {
-		slog.Error("load client assets; run npm run build first", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("load client assets; run npm run build first: %w", err)
 	}
 	server, err := httpserver.NewApplication(identityService, assets)
 	if err != nil {
-		slog.Error("configure HTTPS server", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("configure HTTPS server: %w", err)
 	}
 
-	slog.Info("starting local HTTPS server", "address", server.Addr)
-	if err := server.ListenAndServeTLS(certFile, keyFile); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("HTTPS server stopped", "error", err)
-		os.Exit(1)
+	collector, err := ingest.NewCollector(egress.NewHTTPClient(), postgres.NewStore(pool))
+	if err != nil {
+		return fmt.Errorf("configure CERT-EU collection: %w", err)
 	}
+
+	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	collectionDone := make(chan struct{})
+	go func() {
+		defer close(collectionDone)
+		if err := ingest.RunPeriodically(runCtx, collector, collectionCheckInterval); err != nil {
+			slog.Error("collection scheduler stopped", "event", "collection_scheduler", "outcome", "failure", "error", err)
+		}
+	}()
+
+	slog.Info(
+		"starting CERT-EU collection scheduler",
+		"event", "collection_scheduler",
+		"outcome", "started",
+		"check_interval", collectionCheckInterval.String(),
+	)
+	slog.Info("starting local HTTPS server", "address", server.Addr)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServeTLS(certFile, keyFile)
+	}()
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			stop()
+			<-collectionDone
+			return fmt.Errorf("HTTPS server stopped: %w", err)
+		}
+		stop()
+	case <-runCtx.Done():
+		slog.Info("shutdown requested", "event", "server_shutdown", "outcome", "started")
+	}
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
+	defer shutdownCancel()
+	shutdownErr := server.Shutdown(shutdownCtx)
+	stop()
+	<-collectionDone
+	if shutdownErr != nil {
+		return fmt.Errorf("shut down HTTPS server: %w", shutdownErr)
+	}
+	return nil
 }

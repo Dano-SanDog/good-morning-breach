@@ -99,7 +99,7 @@ Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked 
 
 Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migration seeds the licensed CERT-EU security-advisory RSS source and grants the `gb_app` role only the ingestion, authentication, and story-reading permissions the application needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
 
-The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and observes the feed's advertised 24-hour TTL. The command is currently one-shot; scheduling and the other sources remain future work. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
+The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and observes the feed's advertised 24-hour poll interval. `cmd/collect` remains available for a one-shot manual run; the server also checks for due collections at startup and once per hour while it is running. The source's persisted poll interval prevents fetching more often than once every 24 hours, so a due feed is collected within about an hour. Other sources and collection scheduling while the server is stopped remain future work. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
 
 ### Run the authenticated dashboard
 
@@ -119,7 +119,7 @@ After migrations are applied and the client dependencies are installed:
 
    Keep both files outside the repository. The server refuses to start unless the private key is a regular file with mode `0600`.
 3. Create the first admin interactively: `go run ./cmd/bootstrap`. Enter the email normally and the password at the hidden prompt. The password must be at least 12 characters and not appear in the HIBP Pwned Passwords service. An authenticator app is enrolled on first sign-in.
-4. Collect CERT-EU once with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`.
+4. (Optional) Run an immediate one-shot collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. The server also checks for due stories at startup and periodically while running.
 5. Start the server:
 
    ```sh
@@ -128,7 +128,7 @@ After migrations are applied and the client dependencies are installed:
      go run ./cmd/server
    ```
 
-6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows CERT-EU stories from the last 24 hours (up to 100). Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime.
+6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows CERT-EU stories from the last 24 hours (up to 100). Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly; the CERT-EU feed is fetched only when its 24-hour poll interval has elapsed.
 
 The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
@@ -140,7 +140,8 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Choose and pin the tech stack baseline ([ARCHITECTURE.md](ARCHITECTURE.md); remaining proposed dependencies need checks before integration)
 - [x] Create and audit the Go/React application scaffold
 - [x] Implement the first licensed RSS ingestion slice (CERT-EU)
-- [ ] Schedule collection and add the remaining approved sources
+- [x] Schedule CERT-EU collection while the server is running
+- [ ] Add the remaining approved sources and schedule collection when the server is stopped
 - [ ] Add categorization and risk scoring
 - [ ] Add MITRE ATT&CK mapping
 - [ ] Complete authentication and roles (admin/user management, password reset, and account administration)

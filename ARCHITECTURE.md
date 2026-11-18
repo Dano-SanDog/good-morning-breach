@@ -54,7 +54,7 @@ The client does not use a router, a state library, or a UI kit. The four screens
 - `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, security headers, CSRF checks, and generic error responses. Its API currently supports sign-in, authenticator enrollment, session activity/logout, and listing recent stories.
 - `internal/identity` implements first-admin bootstrap, Argon2id password hashing with a HIBP range check, TOTP enrollment and verification, failed-login lockout, and hashed server-side sessions. User management and password resets remain future work.
 - `internal/applog` writes structured JSON logs to stdout and private daily files under the OS user configuration directory. The log directory is `0700`; log files are `0600`; files older than 30 days are removed.
-- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` and `cmd/server` use the restricted `gb_app` role; the collector performs one collection run.
+- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` uses the restricted `gb_app` role for a one-shot run. `cmd/server` uses the same restricted role and checks for due CERT-EU collection at startup and hourly while running; the persisted source poll interval limits actual fetches to once every 24 hours.
 - `internal/ingest` fetches the seeded CERT-EU RSS feed, respects its 24-hour advertised TTL, stores only normalized headlines and links, and records failures. `internal/store/postgres` deduplicates stories globally by canonical link and keeps source associations and collection status.
 - The collector's shared outbound client blocks private and special-use IP addresses at connection time, does not use proxies or follow redirects, and has bounded timeouts. Feed responses are capped at 10 MiB.
 - `src` provides sign-in, first-login authenticator enrollment, logout, and a recent-stories view. Story titles are rendered as text and external links are scheme-checked.
@@ -62,7 +62,7 @@ The client does not use a router, a state library, or a UI kit. The four screens
 
 ## Components and Flows
 
-The production components are intended to run in **one Go process** that uses one local PostgreSQL database (AQ-2). The single process is PROPOSED: it is the fewest services that can meet NFR-2 at a scale of 10 users. The current `cmd/collect` is a one-shot operator command; collection scheduling will move into the application process in a later slice.
+The first implementation runs the HTTP API and CERT-EU collection scheduler in **one Go process** using one local PostgreSQL database (AQ-2). The remaining background jobs are planned for this process; `cmd/collect` remains available as a one-shot operator command. This is the fewest services that can meet NFR-2 at a scale of 10 users.
 
 | Component | Responsibility | Business rules enforced | Data owned | Requirement IDs | Status |
 |---|---|---|---|---|---|
@@ -77,12 +77,12 @@ The production components are intended to run in **one Go process** that uses on
 | Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | PLANNED |
 | Alerting (job) | Per-user schedule, story selection, rendering, delivery, retries | FR-4.5 to FR-4.19; FR-8.8 and FR-8.11 on every channel | Alert settings, delivery records | FR-4, FR-10.2 | PLANNED |
 | Channel adapters | Email, SMS, and Slack transport only | None | None | FR-4.2 to FR-4.4 | PLANNED |
-| Scheduler | Starts collection, analysis, alert, and retention runs in-process | FR-1.9 (collect before alerts), NFR-2.2 | None | FR-1.8, FR-4.5, FR-10 | PLANNED |
+| Scheduler | Checks CERT-EU collection at startup and hourly while the server is running | Respects the persisted per-source poll interval; serial execution avoids overlapping runs | None | FR-1.8, FR-1.9 | PARTIAL |
 | Retention (job) | Deletes expired stories and delivery records | FR-10.1, FR-10.2 | None | FR-10 | PLANNED |
 
 ### Main data flows
 
-1. **Collect (current):** `cmd/collect` → Collector → CERT-EU RSS (HTTPS) → Collector validates and normalizes → Story store. Failures are recorded and logged. A scheduler and additional sources remain future work.
+1. **Collect (current):** server scheduler (startup + hourly) or `cmd/collect` → Collector → CERT-EU RSS (HTTPS) → Collector validates and normalizes → Story store. The persisted 24-hour source interval prevents unnecessary fetches; failures are recorded and logged. Scheduling while the server is stopped and additional sources remain future work.
 2. **Analyze:** Story store → Analyzer (with ATT&CK data and the source's content rights) → Story store.
 3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, or Source registry → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.
