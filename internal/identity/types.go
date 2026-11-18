@@ -62,6 +62,7 @@ type Story struct {
 	Title            string            `json:"title"`
 	URL              string            `json:"url"`
 	Sources          []string          `json:"sources"`
+	Attributions     []string          `json:"attributions"`
 	PublishedAt      *time.Time        `json:"publishedAt"`
 	Categories       []string          `json:"categories"`
 	Risk             string            `json:"risk"`

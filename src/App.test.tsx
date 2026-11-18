@@ -16,6 +16,7 @@ test("renders story titles as text and rejects unsafe external links", () => {
         title: "<b>untrusted</b>",
         url: "javascript:alert(1)",
         sources: ["CERT-EU"],
+        attributions: ["Source: CERT-EU"],
         publishedAt: null,
         categories: ["Other"],
         risk: "Informational",
@@ -37,6 +38,7 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       title: "<b>untrusted</b>",
       url: "https://example.org/advisory",
       sources: ["CERT-EU"],
+      attributions: ["Source: CERT-EU"],
       publishedAt: null,
       categories: ["__proto__"],
       risk: "High",
@@ -52,6 +54,7 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
   expect(parsed?.[0]?.categories).toEqual(["__proto__"]);
   expect(parsed?.[0]?.risk).toBe("High");
   expect(parsed?.[0]?.sentiment).toBe("Negative");
+  expect(parsed?.[0]?.attributions).toEqual(["Source: CERT-EU"]);
   expect(parsed?.[0]?.attackTechniques[0]?.url).toBe("https://attack.mitre.org/techniques/T1190/");
   expect(Object.prototype).not.toHaveProperty("polluted");
 
@@ -61,6 +64,7 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       title: "Headline",
       url: "https://example.org/advisory",
       sources: ["CERT-EU"],
+      attributions: ["Source: CERT-EU"],
       publishedAt: null,
       categories: ["Other"],
       risk: "Severe",
@@ -75,6 +79,7 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       title: "Headline",
       url: "https://example.org/advisory",
       sources: ["CERT-EU"],
+      attributions: ["Source: CERT-EU"],
       publishedAt: null,
       categories: ["Other"],
       risk: "High",

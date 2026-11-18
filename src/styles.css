@@ -395,6 +395,18 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.story-attributions {
+  margin-top: 8px;
+  color: #4e4a6b;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.story-attributions p {
+  margin: 0;
+}
+
 .empty-state {
   padding: 32px 24px;
   border-top: 1px solid #d9d7e5;

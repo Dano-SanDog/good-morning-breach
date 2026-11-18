@@ -14,6 +14,7 @@ type Story = {
   title: string;
   url: string;
   sources: string[];
+  attributions: string[];
   publishedAt: string | null;
   categories: string[];
   risk: "Critical" | "High" | "Medium" | "Low" | "Informational";
@@ -111,6 +112,7 @@ export function parseStories(value: unknown): Story[] | null {
       typeof item.title !== "string" ||
       typeof item.url !== "string" ||
       !isStringArray(item.sources) ||
+      !isStringArray(item.attributions) ||
       !isStringArray(item.categories) ||
       !isRisk(item.risk) ||
       !isSentiment(item.sentiment) ||
@@ -125,6 +127,7 @@ export function parseStories(value: unknown): Story[] | null {
       title: item.title,
       url: item.url,
       sources: item.sources,
+      attributions: item.attributions,
       publishedAt: item.publishedAt,
       categories: item.categories,
       risk: item.risk,
@@ -494,7 +497,7 @@ export function App() {
         <div className="dashboard-heading">
           <div>
             <h1>This morning</h1>
-            <p className="muted">Recent CERT-EU security advisories</p>
+            <p className="muted">Recent CERT-EU and SANS ISC stories</p>
           </div>
           <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"}</span>
         </div>
@@ -502,7 +505,7 @@ export function App() {
         {stories.length === 0 ? (
           <section className="empty-state" aria-live="polite">
             <h2>No recent stories</h2>
-            <p>Run the collection command to check for new CERT-EU advisories.</p>
+            <p>Run the collection command to check for new stories.</p>
           </section>
         ) : (
           <ol className="story-ledger">
@@ -537,6 +540,13 @@ export function App() {
                       </dd>
                     </div>
                   </dl>
+                  {story.attributions.length > 0 && (
+                    <div className="story-attributions">
+                      {story.attributions.map((attribution) => (
+                        <p key={attribution}>{attribution}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </li>
             ))}
