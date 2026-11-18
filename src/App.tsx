@@ -3,6 +3,12 @@ import "./styles.css";
 import logo from "../logo.svg";
 
 type User = { email: string; role: "admin" | "user" };
+type AttackTechnique = {
+  id: string;
+  name: string;
+  tactics: string[];
+  url: string;
+};
 type Story = {
   id: number;
   title: string;
@@ -12,6 +18,7 @@ type Story = {
   categories: string[];
   risk: "Critical" | "High" | "Medium" | "Low" | "Informational";
   sentiment: "Negative" | "Neutral" | "Positive";
+  attackTechniques: AttackTechnique[];
 };
 const riskValues: ReadonlySet<string> = new Set(["Critical", "High", "Medium", "Low", "Informational"]);
 const sentimentValues: ReadonlySet<string> = new Set(["Negative", "Neutral", "Positive"]);
@@ -70,6 +77,28 @@ function isSentiment(value: unknown): value is Story["sentiment"] {
   return typeof value === "string" && sentimentValues.has(value);
 }
 
+function isAttackTechnique(value: unknown): value is AttackTechnique {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    !/^T[0-9]{4}(\.[0-9]{3})?$/.test(value.id) ||
+    typeof value.name !== "string" ||
+    !isStringArray(value.tactics) ||
+    value.tactics.length === 0 ||
+    typeof value.url !== "string"
+  ) {
+    return false;
+  }
+  const url = getSafeExternalURL(value.url);
+  return url !== null &&
+    url.protocol === "https:" &&
+    url.hostname === "attack.mitre.org" &&
+    url.port === "" &&
+    url.pathname === `/techniques/${value.id.replace(".", "/")}/` &&
+    url.search === "" &&
+    url.hash === "";
+}
+
 export function parseStories(value: unknown): Story[] | null {
   if (!isRecord(value) || !Array.isArray(value.stories)) {
     return null;
@@ -85,6 +114,8 @@ export function parseStories(value: unknown): Story[] | null {
       !isStringArray(item.categories) ||
       !isRisk(item.risk) ||
       !isSentiment(item.sentiment) ||
+      !Array.isArray(item.attackTechniques) ||
+      !item.attackTechniques.every(isAttackTechnique) ||
       (typeof item.publishedAt !== "string" && item.publishedAt !== null)
     ) {
       return null;
@@ -98,6 +129,7 @@ export function parseStories(value: unknown): Story[] | null {
       categories: item.categories,
       risk: item.risk,
       sentiment: item.sentiment,
+      attackTechniques: item.attackTechniques,
     });
   }
   return stories;
@@ -484,6 +516,11 @@ export function App() {
                     <span className="sentiment-label">Tone: {story.sentiment}</span>
                     {story.categories.map((category) => (
                       <span className="tag-chip" key={category}>{category}</span>
+                    ))}
+                    {story.attackTechniques.map((technique) => (
+                      <a className="tag-chip attack-chip" href={technique.url} key={technique.id} target="_blank" rel="noopener noreferrer">
+                        <span className="attack-id">{technique.id}</span>: {technique.name} ({technique.tactics.join(", ")})
+                      </a>
                     ))}
                   </div>
                   <dl className="story-metadata">

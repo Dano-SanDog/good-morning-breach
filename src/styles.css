@@ -360,6 +360,19 @@ button:disabled {
   font-weight: 700;
 }
 
+.attack-chip {
+  color: #1d1a3b;
+  text-decoration: none;
+}
+
+.attack-chip:hover {
+  text-decoration: underline;
+}
+
+.attack-id {
+  font-variant-numeric: tabular-nums;
+}
+
 .story-metadata {
   display: flex;
   flex-wrap: wrap;

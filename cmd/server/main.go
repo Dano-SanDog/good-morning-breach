@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/httpserver"
@@ -59,6 +60,24 @@ func run() error {
 	}
 	defer pool.Close()
 
+	attackIndex, err := analyzer.NewAttackIndex()
+	if err != nil {
+		return fmt.Errorf("load pinned MITRE ATT&CK bundle: %w", err)
+	}
+	storyStore, err := postgres.NewStore(pool, attackIndex)
+	if err != nil {
+		return fmt.Errorf("configure story store: %w", err)
+	}
+	analysisCtx, analysisCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	analyzedStories, err := storyStore.ReanalyzeStories(analysisCtx)
+	analysisCancel()
+	if err != nil {
+		return fmt.Errorf("backfill story analysis: %w", err)
+	}
+	if analyzedStories > 0 {
+		slog.Info("backfilled story analysis", "count", analyzedStories)
+	}
+
 	dataKey, err := secrets.LoadDataKey()
 	if err != nil {
 		return fmt.Errorf("load application data key: %w", err)
@@ -77,7 +96,7 @@ func run() error {
 		return fmt.Errorf("configure HTTPS server: %w", err)
 	}
 
-	collector, err := ingest.NewCollector(egress.NewHTTPClient(), postgres.NewStore(pool))
+	collector, err := ingest.NewCollector(egress.NewHTTPClient(), storyStore)
 	if err != nil {
 		return fmt.Errorf("configure CERT-EU collection: %w", err)
 	}

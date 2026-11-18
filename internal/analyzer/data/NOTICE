@@ -1,0 +1,15 @@
+MITRE ATT&CK Enterprise STIX bundle v20.1
+
+Source:
+https://github.com/mitre-attack/attack-stix-data/releases/download/v20.1/enterprise-attack.json
+
+Source bundle SHA-256:
+539a843a7b53ed9749740b2123dddae3726b1a4831841c32aca740b011b910b5
+
+Embedded gzip file SHA-256:
+2d1200b4278440105b6004d0f6e3789c5e3670614787f4ce256e199ad85870fa
+
+© 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.
+
+Terms of Use:
+https://attack.mitre.org/resources/legal-and-branding/terms-of-use/

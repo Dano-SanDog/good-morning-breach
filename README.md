@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. A partial analysis baseline now assigns categories, risk, and sentiment to CERT-EU headlines and ranks stories by risk. Full source coverage, admin-editable categories, richer analysis, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Full source coverage, admin-editable categories, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -59,7 +59,7 @@ One or more categories per story. Starting list: Vulnerability, Exploited Vulner
 - Sentiment (tone of the story): Negative, Neutral, Positive.
 
 ### MITRE ATT&CK Analysis
-Each story is tagged with zero or more ATT&CK techniques (ID, name, tactic), each linked to its page on the ATT&CK website.
+The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. This does not inspect article text or infer techniques semantically. Email alerts are not implemented yet.
 
 ### Data Retention
 Stories are kept for 365 days. Alert delivery records are kept for 90 days.
@@ -143,7 +143,7 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Schedule CERT-EU collection while the server is running
 - [ ] Add the remaining approved sources and schedule collection when the server is stopped
 - [ ] Add categorization and risk scoring
-- [ ] Add MITRE ATT&CK mapping
+- [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [ ] Complete authentication and roles (admin/user management, password reset, and account administration)
 - [ ] Complete the dashboard (filters, risk analysis, ATT&CK mapping, Radar, and admin source status)
 - [ ] Add alert delivery (email, SMS, Slack)

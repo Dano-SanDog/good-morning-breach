@@ -2,10 +2,12 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -331,7 +333,18 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		stories.risk,
 		stories.sentiment,
-		array_agg(DISTINCT categories.name ORDER BY categories.name)
+		array_agg(DISTINCT categories.name ORDER BY categories.name),
+		COALESCE(
+			(SELECT jsonb_agg(jsonb_build_object(
+				'id', attack_techniques.technique_id,
+				'name', attack_techniques.name,
+				'tactics', attack_techniques.tactics
+			) ORDER BY attack_techniques.technique_id)
+			FROM story_techniques
+			JOIN attack_techniques ON attack_techniques.technique_id = story_techniques.technique_id
+			WHERE story_techniques.story_id = stories.id),
+			'[]'::jsonb
+		)
 		FROM stories
 		JOIN story_sources ON story_sources.story_id = stories.id
 		JOIN data_sources ON data_sources.id = story_sources.source_id
@@ -355,6 +368,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 	var stories []identity.Story
 	for rows.Next() {
 		var story identity.Story
+		var attackTechniquesJSON []byte
 		if err := rows.Scan(
 			&story.ID,
 			&story.Title,
@@ -364,8 +378,19 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 			&story.Risk,
 			&story.Sentiment,
 			&story.Categories,
+			&attackTechniquesJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan recent story: %w", err)
+		}
+		if err := json.Unmarshal(attackTechniquesJSON, &story.AttackTechniques); err != nil {
+			return nil, fmt.Errorf("decode recent story ATT&CK techniques: %w", err)
+		}
+		for i := range story.AttackTechniques {
+			url, ok := analyzer.TechniqueURL(story.AttackTechniques[i].ID)
+			if !ok {
+				return nil, fmt.Errorf("stored ATT&CK technique ID %q is invalid", story.AttackTechniques[i].ID)
+			}
+			story.AttackTechniques[i].URL = url
 		}
 		stories = append(stories, story)
 	}

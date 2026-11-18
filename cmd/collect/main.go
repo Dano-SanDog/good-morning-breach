@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
@@ -40,7 +41,17 @@ func run() error {
 	}
 	defer pool.Close()
 
-	store := postgres.NewStore(pool)
+	attackIndex, err := analyzer.NewAttackIndex()
+	if err != nil {
+		return fmt.Errorf("load pinned MITRE ATT&CK bundle: %w", err)
+	}
+	store, err := postgres.NewStore(pool, attackIndex)
+	if err != nil {
+		return fmt.Errorf("configure story store: %w", err)
+	}
+	if _, err := store.ReanalyzeStories(ctx); err != nil {
+		return fmt.Errorf("backfill story analysis: %w", err)
+	}
 	collector, err := ingest.NewCollector(egress.NewHTTPClient(), store)
 	if err != nil {
 		return err

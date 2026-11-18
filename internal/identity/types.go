@@ -38,6 +38,13 @@ type Session struct {
 	PartialExpiresAt *time.Time
 }
 
+type AttackTechnique struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Tactics []string `json:"tactics"`
+	URL     string   `json:"url"`
+}
+
 func (Account) LogValue() slog.Value {
 	return slog.StringValue("[redacted]")
 }
@@ -51,14 +58,15 @@ func (LoginResult) LogValue() slog.Value {
 }
 
 type Story struct {
-	ID          int64      `json:"id"`
-	Title       string     `json:"title"`
-	URL         string     `json:"url"`
-	Sources     []string   `json:"sources"`
-	PublishedAt *time.Time `json:"publishedAt"`
-	Categories  []string   `json:"categories"`
-	Risk        string     `json:"risk"`
-	Sentiment   string     `json:"sentiment"`
+	ID               int64             `json:"id"`
+	Title            string            `json:"title"`
+	URL              string            `json:"url"`
+	Sources          []string          `json:"sources"`
+	PublishedAt      *time.Time        `json:"publishedAt"`
+	Categories       []string          `json:"categories"`
+	Risk             string            `json:"risk"`
+	Sentiment        string            `json:"sentiment"`
+	AttackTechniques []AttackTechnique `json:"attackTechniques"`
 }
 
 type Store interface {

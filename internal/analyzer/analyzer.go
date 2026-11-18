@@ -21,9 +21,10 @@ const (
 )
 
 type Result struct {
-	Categories []string
-	Risk       Risk
-	Sentiment  Sentiment
+	Categories       []string
+	Risk             Risk
+	Sentiment        Sentiment
+	AttackTechniques []AttackTechnique
 }
 
 type categoryRule struct {

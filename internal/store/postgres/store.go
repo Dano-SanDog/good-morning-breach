@@ -8,15 +8,86 @@ import (
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	currentAnalysisVersion = 1
+	analysisBatchSize      = 100
+)
+
 type Store struct {
-	pool *pgxpool.Pool
+	pool        *pgxpool.Pool
+	attackIndex *analyzer.AttackIndex
 }
 
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+func NewStore(pool *pgxpool.Pool, attackIndex *analyzer.AttackIndex) (*Store, error) {
+	if attackIndex == nil {
+		return nil, errors.New("ATT&CK index is required")
+	}
+	return &Store{pool: pool, attackIndex: attackIndex}, nil
+}
+
+func (s *Store) ReanalyzeStories(ctx context.Context) (int, error) {
+	total := 0
+	for {
+		updated, err := s.reanalyzeStoryBatch(ctx)
+		if err != nil {
+			return total, err
+		}
+		total += updated
+		if updated == 0 {
+			return total, nil
+		}
+	}
+}
+
+func (s *Store) reanalyzeStoryBatch(ctx context.Context) (int, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return 0, fmt.Errorf("begin story analysis batch: %w", err)
+	}
+	defer rollback(tx)
+
+	rows, err := tx.Query(queryCtx, `SELECT id, title FROM stories
+		WHERE analysis_version < $1
+		ORDER BY id
+		LIMIT $2`, currentAnalysisVersion, analysisBatchSize)
+	if err != nil {
+		return 0, fmt.Errorf("query stories requiring analysis: %w", err)
+	}
+	type storyHeadline struct {
+		id    int64
+		title string
+	}
+	var stories []storyHeadline
+	for rows.Next() {
+		var story storyHeadline
+		if err := rows.Scan(&story.id, &story.title); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan story requiring analysis: %w", err)
+		}
+		stories = append(stories, story)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, fmt.Errorf("read stories requiring analysis: %w", err)
+	}
+	rows.Close()
+
+	for _, story := range stories {
+		if err := s.saveStoryAnalysis(queryCtx, tx, story.id, story.title); err != nil {
+			return 0, fmt.Errorf("analyze story %d: %w", story.id, err)
+		}
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return 0, fmt.Errorf("commit story analysis batch: %w", err)
+	}
+	return len(stories), nil
 }
 
 func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error) {
@@ -78,46 +149,21 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 	}()
 
 	for _, item := range items {
-		analysis := analyzer.Analyze(item.Title)
 		var storyID int64
-		err := tx.QueryRow(queryCtx, `INSERT INTO stories (
-				canonical_url, title, published_at, risk, sentiment
-			) VALUES ($1, $2, $3, $4, $5)
+		err := tx.QueryRow(queryCtx, `INSERT INTO stories (canonical_url, title, published_at)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (canonical_url) DO UPDATE SET
 				title = EXCLUDED.title,
 				published_at = COALESCE(EXCLUDED.published_at, stories.published_at),
-				risk = EXCLUDED.risk,
-				sentiment = EXCLUDED.sentiment,
 				updated_at = clock_timestamp()
 			RETURNING id`,
-			item.CanonicalURL, item.Title, item.PublishedAt, analysis.Risk, analysis.Sentiment,
+			item.CanonicalURL, item.Title, item.PublishedAt,
 		).Scan(&storyID)
 		if err != nil {
 			return 0, fmt.Errorf("upsert story: %w", err)
 		}
-		if _, err := tx.Exec(queryCtx, `DELETE FROM story_categories WHERE story_id = $1`, storyID); err != nil {
-			return 0, fmt.Errorf("replace story categories: %w", err)
-		}
-		assignedCategories := int64(0)
-		for _, categoryID := range analysis.Categories {
-			tag, err := tx.Exec(queryCtx, `INSERT INTO story_categories (story_id, category_id)
-				SELECT $1, id FROM categories WHERE id = $2 AND enabled
-				ON CONFLICT DO NOTHING`, storyID, categoryID)
-			if err != nil {
-				return 0, fmt.Errorf("assign story category: %w", err)
-			}
-			assignedCategories += tag.RowsAffected()
-		}
-		if assignedCategories == 0 {
-			tag, err := tx.Exec(queryCtx, `INSERT INTO story_categories (story_id, category_id)
-				SELECT $1, id FROM categories WHERE id = 'other' AND enabled
-				ON CONFLICT DO NOTHING`, storyID)
-			if err != nil {
-				return 0, fmt.Errorf("assign fallback story category: %w", err)
-			}
-			if tag.RowsAffected() == 0 {
-				return 0, errors.New("no enabled fallback category is available")
-			}
+		if err := s.saveStoryAnalysis(queryCtx, tx, storyID, item.Title); err != nil {
+			return 0, fmt.Errorf("analyze collected story: %w", err)
 		}
 		if _, err := tx.Exec(queryCtx, `INSERT INTO story_sources (story_id, source_id)
 			VALUES ($1, $2)
@@ -149,6 +195,69 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 		return 0, fmt.Errorf("commit collection transaction: %w", err)
 	}
 	return itemsSaved, nil
+}
+
+func (s *Store) saveStoryAnalysis(ctx context.Context, tx pgx.Tx, storyID int64, title string) error {
+	analysis := analyzer.Analyze(title)
+	analysis.AttackTechniques = s.attackIndex.Match(title)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM story_categories WHERE story_id = $1`, storyID); err != nil {
+		return fmt.Errorf("replace story categories: %w", err)
+	}
+	assignedCategories := int64(0)
+	for _, categoryID := range analysis.Categories {
+		tag, err := tx.Exec(ctx, `INSERT INTO story_categories (story_id, category_id)
+			SELECT $1, id FROM categories WHERE id = $2 AND enabled
+			ON CONFLICT DO NOTHING`, storyID, categoryID)
+		if err != nil {
+			return fmt.Errorf("assign story category: %w", err)
+		}
+		assignedCategories += tag.RowsAffected()
+	}
+	if assignedCategories == 0 {
+		tag, err := tx.Exec(ctx, `INSERT INTO story_categories (story_id, category_id)
+			SELECT $1, id FROM categories WHERE id = 'other' AND enabled
+			ON CONFLICT DO NOTHING`, storyID)
+		if err != nil {
+			return fmt.Errorf("assign fallback story category: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return errors.New("no enabled fallback category is available")
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM story_techniques WHERE story_id = $1`, storyID); err != nil {
+		return fmt.Errorf("replace story ATT&CK techniques: %w", err)
+	}
+	for _, technique := range analysis.AttackTechniques {
+		if _, err := tx.Exec(ctx, `INSERT INTO attack_techniques (
+			technique_id, name, tactics
+		) VALUES ($1, $2, $3)
+		ON CONFLICT (technique_id) DO UPDATE SET
+			name = EXCLUDED.name,
+			tactics = EXCLUDED.tactics,
+			updated_at = clock_timestamp()`,
+			technique.ID, technique.Name, technique.Tactics,
+		); err != nil {
+			return fmt.Errorf("save ATT&CK technique: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO story_techniques (story_id, technique_id)
+			VALUES ($1, $2)
+			ON CONFLICT DO NOTHING`, storyID, technique.ID); err != nil {
+			return fmt.Errorf("associate story ATT&CK technique: %w", err)
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `UPDATE stories SET
+		risk = $2, sentiment = $3, analysis_version = $4, updated_at = clock_timestamp()
+		WHERE id = $1`, storyID, analysis.Risk, analysis.Sentiment, currentAnalysisVersion)
+	if err != nil {
+		return fmt.Errorf("update story analysis: %w", err)
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("story %d no longer exists", storyID)
+	}
+	return nil
 }
 
 func (s *Store) RecordFailure(ctx context.Context, source ingest.Source, run ingest.Run, cause string) error {
