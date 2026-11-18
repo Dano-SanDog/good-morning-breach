@@ -54,15 +54,15 @@ The client does not use a router, a state library, or a UI kit. The four screens
 - `internal/httpserver` configures TLS, request limits, timeouts, disabled trusted proxies, security headers, CSRF checks, and generic error responses. Its API currently supports sign-in, authenticator enrollment, session activity/logout, and listing recent stories.
 - `internal/identity` implements first-admin bootstrap, Argon2id password hashing with a HIBP range check, TOTP enrollment and verification, failed-login lockout, and hashed server-side sessions. User management and password resets remain future work.
 - `internal/applog` writes structured JSON logs to stdout and private daily files under the OS user configuration directory. The log directory is `0700`; log files are `0600`; files older than 30 days are removed.
-- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` uses the restricted `gb_app` role for a one-shot run. `cmd/server` uses the same restricted role and checks for due CERT-EU collection at startup and hourly while running; the persisted source poll interval limits actual fetches to once every 24 hours.
-- `internal/ingest` fetches the seeded CERT-EU RSS feed, respects its 24-hour advertised TTL, stores only normalized headlines and links, and records failures. `internal/store/postgres` deduplicates stories globally by canonical link and keeps source associations and collection status.
+- `cmd/migrate` applies the versioned PostgreSQL schema as the local database owner. `cmd/collect` uses the restricted `gb_app` role for a one-shot run. `cmd/server` checks enabled sources at startup and hourly while running; a macOS LaunchAgent can also run `cmd/collect` at login and hourly while the server is stopped. Both collection paths share a PostgreSQL advisory lock.
+- `internal/ingest` fetches the seeded CERT-EU and SANS ISC RSS feeds, respects each persisted poll interval, stores only normalized headlines and links, and records failures. `internal/store/postgres` deduplicates stories globally by canonical link and keeps source associations and collection status.
 - The collector's shared outbound client blocks private and special-use IP addresses at connection time, does not use proxies or follow redirects, and has bounded timeouts. Feed responses are capped at 10 MiB.
 - `src` provides sign-in, first-login authenticator enrollment, logout, and a recent-stories view. Story titles are rendered as text and external links are scheme-checked.
 - `npm run build` type-checks and creates the client bundle embedded by the Go process. `npm run dev` starts Vite on localhost but does not proxy the API; use the integrated server to test the full path.
 
 ## Components and Flows
 
-The first implementation runs the HTTP API and CERT-EU collection scheduler in **one Go process** using one local PostgreSQL database (AQ-2). The remaining background jobs are planned for this process; `cmd/collect` remains available as a one-shot operator command. This is the fewest services that can meet NFR-2 at a scale of 10 users.
+The HTTP API and hourly collection scheduler run in one Go process against one local PostgreSQL database (AQ-2). On macOS, an optional LaunchAgent runs the same one-shot collector while the server is stopped; a database advisory lock serializes both paths. Other background jobs remain planned for this process.
 
 | Component | Responsibility | Business rules enforced | Data owned | Requirement IDs | Status |
 |---|---|---|---|---|---|
@@ -77,12 +77,12 @@ The first implementation runs the HTTP API and CERT-EU collection scheduler in *
 | Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | PLANNED |
 | Alerting (job) | Per-user schedule, story selection, rendering, delivery, retries | FR-4.5 to FR-4.19; FR-8.8 and FR-8.11 on every channel | Alert settings, delivery records | FR-4, FR-10.2 | PLANNED |
 | Channel adapters | Email, SMS, and Slack transport only | None | None | FR-4.2 to FR-4.4 | PLANNED |
-| Scheduler | Checks CERT-EU collection at startup and hourly while the server is running | Respects the persisted per-source poll interval; serial execution avoids overlapping runs | None | FR-1.8, FR-1.9 | PARTIAL |
+| Scheduler | Checks enabled-source collection at startup and hourly while the server is running; optional macOS LaunchAgent runs at login and hourly | Respects persisted per-source poll intervals; PostgreSQL advisory lock prevents overlapping collection runs | None | FR-1.8, FR-1.9 | PARTIAL |
 | Retention (job) | Deletes expired stories and delivery records | FR-10.1, FR-10.2 | None | FR-10 | PLANNED |
 
 ### Main data flows
 
-1. **Collect (current):** server scheduler (startup + hourly) or `cmd/collect` → Collector → CERT-EU and SANS ISC RSS (HTTPS) → Collector validates and normalizes → Story store. Persisted 24-hour and 30-minute source intervals prevent unnecessary fetches; failures are recorded and logged. Scheduling while the server is stopped and additional sources remain future work.
+1. **Collect (current):** server scheduler (startup + hourly), macOS LaunchAgent (login + hourly), or manual `cmd/collect` → Collector → CERT-EU and SANS ISC RSS (HTTPS) → Collector validates and normalizes → Story store. A PostgreSQL advisory lock serializes runs; persisted 24-hour and 30-minute source intervals prevent unnecessary fetches. Additional sources remain future work.
 2. **Analyze (current baseline):** the Collector applies deterministic keyword rules and pinned ATT&CK technique-name/alias phrase matching to collected headlines, then persists categories, risk, sentiment, and matched technique tags. Server startup backfills unanalysed stories in bounded batches. Structured feed data, permitted article text, semantic ATT&CK mapping, summaries, and CVE links remain future work.
 3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, or Source registry → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.

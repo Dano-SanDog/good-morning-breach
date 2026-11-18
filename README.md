@@ -101,7 +101,11 @@ Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked 
 
 Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migrations seed the licensed CERT-EU and SANS Internet Storm Center RSS sources and grant the `gb_app` role only the ingestion, authentication, and story-reading permissions the application needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
 
-The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and respects each source's persisted poll interval (24 hours for CERT-EU and 30 minutes for SANS ISC). `cmd/collect` remains available for a one-shot manual run; the server also checks for due collections at startup and once per hour while it is running. Additional sources and collection scheduling while the server is stopped remain future work. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
+The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and respects each source's persisted poll interval (24 hours for CERT-EU and 30 minutes for SANS ISC). `cmd/collect` remains available for a one-shot manual run; the server also checks for due collections at startup and once per hour while it is running. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
+
+### Schedule collection while the server is stopped (macOS)
+
+After applying migrations and setting up the local database role, run `scripts/install-macos-collection-agent.sh` from the repository. It builds the one-shot collector and installs a per-user LaunchAgent that collects at login and hourly. It uses the default local database connection unless a non-secret `GB_DATABASE_URL` is provided during installation; the script rejects connection strings containing passwords or embedded credentials. Store any database password in the local PostgreSQL password file. The server's scheduler continues to run while the server is open; both paths use a PostgreSQL advisory lock so they cannot collect concurrently. The LaunchAgent runs only while the macOS user is logged in and the computer is awake. To stop it, run `launchctl bootout "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.goodmorningbreach.collect.plist"`.
 
 ### Run the authenticated dashboard
 
@@ -142,8 +146,9 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Choose and pin the tech stack baseline ([ARCHITECTURE.md](ARCHITECTURE.md); remaining proposed dependencies need checks before integration)
 - [x] Create and audit the Go/React application scaffold
 - [x] Implement the first licensed RSS ingestion slice (CERT-EU)
-- [x] Schedule CERT-EU collection while the server is running
-- [ ] Add the remaining approved sources and schedule collection when the server is stopped (CERT-EU and SANS ISC are implemented)
+- [x] Schedule enabled-source collection while the server is running
+- [x] Schedule collection while the server is stopped on macOS
+- [ ] Add the remaining approved sources (CERT-EU and SANS ISC are implemented)
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [ ] Complete authentication and roles (admin/user management, password reset, and account administration)

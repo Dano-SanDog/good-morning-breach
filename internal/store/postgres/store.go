@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
@@ -13,8 +14,9 @@ import (
 )
 
 const (
-	currentAnalysisVersion = 1
-	analysisBatchSize      = 100
+	currentAnalysisVersion       = 1
+	analysisBatchSize            = 100
+	collectionLockID       int64 = 0x47424d434f4c4c
 )
 
 type Store struct {
@@ -132,6 +134,50 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 		return nil, fmt.Errorf("read enabled sources: %w", err)
 	}
 	return sources, nil
+}
+
+func (s *Store) AcquireCollectionLock(ctx context.Context) (func(context.Context) error, error) {
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire database connection for collection lock: %w", err)
+	}
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, collectionLockID); err != nil {
+		closeErr := closeLockedConnection(conn)
+		return nil, errors.Join(fmt.Errorf("acquire PostgreSQL collection lock: %w", err), closeErr)
+	}
+
+	var once sync.Once
+	var releaseErr error
+	return func(releaseCtx context.Context) error {
+		once.Do(func() {
+			var released bool
+			if err := conn.QueryRow(releaseCtx,
+				`SELECT pg_advisory_unlock($1)`, collectionLockID,
+			).Scan(&released); err != nil {
+				releaseErr = errors.Join(
+					fmt.Errorf("unlock PostgreSQL collection lock: %w", err),
+					closeLockedConnection(conn),
+				)
+				return
+			}
+			if !released {
+				releaseErr = errors.Join(
+					errors.New("PostgreSQL collection lock was not held"),
+					closeLockedConnection(conn),
+				)
+				return
+			}
+			conn.Release()
+		})
+		return releaseErr
+	}, nil
+}
+
+func closeLockedConnection(conn *pgxpool.Conn) error {
+	rawConn := conn.Hijack()
+	closeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return rawConn.Close(closeCtx)
 }
 
 func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, run ingest.Run, items []ingest.Item) (int, error) {

@@ -22,11 +22,30 @@ type memoryStore struct {
 	completed     []Item
 	failures      []string
 	failedSources []string
+	listError     error
 	completeError error
+	lockError     error
+	unlockError   error
+	lockCalls     int
+	unlockCalls   int
+	lockHeld      bool
+}
+
+func (s *memoryStore) AcquireCollectionLock(context.Context) (func(context.Context) error, error) {
+	s.lockCalls++
+	if s.lockError != nil {
+		return nil, s.lockError
+	}
+	s.lockHeld = true
+	return func(context.Context) error {
+		s.unlockCalls++
+		s.lockHeld = false
+		return s.unlockError
+	}, nil
 }
 
 func (s *memoryStore) ListEnabledSources(context.Context) ([]Source, error) {
-	return s.sources, nil
+	return s.sources, s.listError
 }
 
 func (s *memoryStore) CompleteCollection(_ context.Context, _ Source, _ Run, items []Item) (int, error) {
@@ -202,6 +221,34 @@ func TestRunSkipsSourceUntilItsPollInterval(t *testing.T) {
 	}
 	if len(results) != 1 || !results[0].Skipped || requests != 0 {
 		t.Fatalf("results = %+v, requests = %d", results, requests)
+	}
+}
+
+func TestRunReleasesCollectionLockAfterSourceListingFailure(t *testing.T) {
+	store := &memoryStore{listError: errors.New("database unavailable")}
+	collector, err := NewCollector(&http.Client{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := collector.Run(context.Background()); err == nil {
+		t.Fatal("expected source listing failure")
+	}
+	if store.lockCalls != 1 || store.unlockCalls != 1 || store.lockHeld {
+		t.Fatalf("collection lock state: acquired %d times, released %d times, held = %v",
+			store.lockCalls, store.unlockCalls, store.lockHeld)
+	}
+}
+
+func TestRunReportsCollectionLockReleaseFailure(t *testing.T) {
+	store := &memoryStore{unlockError: errors.New("unlock failed")}
+	collector, err := NewCollector(&http.Client{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := collector.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "release collection lock") {
+		t.Fatalf("Run() error = %v, want a lock-release failure", err)
 	}
 }
 

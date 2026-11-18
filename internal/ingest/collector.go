@@ -48,13 +48,28 @@ func NewCollector(client *http.Client, store Store) (*Collector, error) {
 	}, nil
 }
 
-func (c *Collector) Run(ctx context.Context) ([]Result, error) {
+func (c *Collector) Run(ctx context.Context) (results []Result, runErr error) {
+	releaseLock, err := c.store.AcquireCollectionLock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire collection lock: %w", err)
+	}
+	if releaseLock == nil {
+		return nil, errors.New("store returned no collection lock release function")
+	}
+	defer func() {
+		releaseCtx, releaseCancel := context.WithTimeout(context.Background(), failureRecordTimeout)
+		defer releaseCancel()
+		if err := releaseLock(releaseCtx); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("release collection lock: %w", err))
+		}
+	}()
+
 	sources, err := c.store.ListEnabledSources(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled sources: %w", err)
 	}
 
-	results := make([]Result, 0, len(sources))
+	results = make([]Result, 0, len(sources))
 	var failures []error
 	for _, source := range sources {
 		if ctx.Err() != nil {

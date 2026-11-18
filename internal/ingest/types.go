@@ -75,6 +75,7 @@ type Run struct {
 }
 
 type Store interface {
+	AcquireCollectionLock(context.Context) (func(context.Context) error, error)
 	ListEnabledSources(context.Context) ([]Source, error)
 	CompleteCollection(context.Context, Source, Run, []Item) (int, error)
 	RecordFailure(context.Context, Source, Run, string) error

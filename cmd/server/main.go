@@ -98,7 +98,7 @@ func run() error {
 
 	collector, err := ingest.NewCollector(egress.NewHTTPClient(), storyStore)
 	if err != nil {
-		return fmt.Errorf("configure CERT-EU collection: %w", err)
+		return fmt.Errorf("configure RSS collection: %w", err)
 	}
 
 	runCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -112,7 +112,7 @@ func run() error {
 	}()
 
 	slog.Info(
-		"starting CERT-EU collection scheduler",
+		"starting collection scheduler",
 		"event", "collection_scheduler",
 		"outcome", "started",
 		"check_interval", collectionCheckInterval.String(),
