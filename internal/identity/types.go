@@ -56,6 +56,9 @@ type Story struct {
 	URL         string     `json:"url"`
 	Sources     []string   `json:"sources"`
 	PublishedAt *time.Time `json:"publishedAt"`
+	Categories  []string   `json:"categories"`
+	Risk        string     `json:"risk"`
+	Sentiment   string     `json:"sentiment"`
 }
 
 type Store interface {

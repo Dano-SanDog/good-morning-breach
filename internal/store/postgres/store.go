@@ -2,9 +2,11 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -76,18 +78,46 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 	}()
 
 	for _, item := range items {
+		analysis := analyzer.Analyze(item.Title)
 		var storyID int64
-		err := tx.QueryRow(queryCtx, `INSERT INTO stories (canonical_url, title, published_at)
-			VALUES ($1, $2, $3)
+		err := tx.QueryRow(queryCtx, `INSERT INTO stories (
+				canonical_url, title, published_at, risk, sentiment
+			) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (canonical_url) DO UPDATE SET
 				title = EXCLUDED.title,
 				published_at = COALESCE(EXCLUDED.published_at, stories.published_at),
+				risk = EXCLUDED.risk,
+				sentiment = EXCLUDED.sentiment,
 				updated_at = clock_timestamp()
 			RETURNING id`,
-			item.CanonicalURL, item.Title, item.PublishedAt,
+			item.CanonicalURL, item.Title, item.PublishedAt, analysis.Risk, analysis.Sentiment,
 		).Scan(&storyID)
 		if err != nil {
 			return 0, fmt.Errorf("upsert story: %w", err)
+		}
+		if _, err := tx.Exec(queryCtx, `DELETE FROM story_categories WHERE story_id = $1`, storyID); err != nil {
+			return 0, fmt.Errorf("replace story categories: %w", err)
+		}
+		assignedCategories := int64(0)
+		for _, categoryID := range analysis.Categories {
+			tag, err := tx.Exec(queryCtx, `INSERT INTO story_categories (story_id, category_id)
+				SELECT $1, id FROM categories WHERE id = $2 AND enabled
+				ON CONFLICT DO NOTHING`, storyID, categoryID)
+			if err != nil {
+				return 0, fmt.Errorf("assign story category: %w", err)
+			}
+			assignedCategories += tag.RowsAffected()
+		}
+		if assignedCategories == 0 {
+			tag, err := tx.Exec(queryCtx, `INSERT INTO story_categories (story_id, category_id)
+				SELECT $1, id FROM categories WHERE id = 'other' AND enabled
+				ON CONFLICT DO NOTHING`, storyID)
+			if err != nil {
+				return 0, fmt.Errorf("assign fallback story category: %w", err)
+			}
+			if tag.RowsAffected() == 0 {
+				return 0, errors.New("no enabled fallback category is available")
+			}
 		}
 		if _, err := tx.Exec(queryCtx, `INSERT INTO story_sources (story_id, source_id)
 			VALUES ($1, $2)

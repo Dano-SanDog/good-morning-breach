@@ -9,7 +9,12 @@ type Story = {
   url: string;
   sources: string[];
   publishedAt: string | null;
+  categories: string[];
+  risk: "Critical" | "High" | "Medium" | "Low" | "Informational";
+  sentiment: "Negative" | "Neutral" | "Positive";
 };
+const riskValues: ReadonlySet<string> = new Set(["Critical", "High", "Medium", "Low", "Informational"]);
+const sentimentValues: ReadonlySet<string> = new Set(["Negative", "Neutral", "Positive"]);
 type LoginStep = "totp" | "setup";
 type View = "loading" | "signin" | LoginStep | "dashboard";
 
@@ -57,7 +62,15 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item: unknown) => typeof item === "string");
 }
 
-function parseStories(value: unknown): Story[] | null {
+function isRisk(value: unknown): value is Story["risk"] {
+  return typeof value === "string" && riskValues.has(value);
+}
+
+function isSentiment(value: unknown): value is Story["sentiment"] {
+  return typeof value === "string" && sentimentValues.has(value);
+}
+
+export function parseStories(value: unknown): Story[] | null {
   if (!isRecord(value) || !Array.isArray(value.stories)) {
     return null;
   }
@@ -69,6 +82,9 @@ function parseStories(value: unknown): Story[] | null {
       typeof item.title !== "string" ||
       typeof item.url !== "string" ||
       !isStringArray(item.sources) ||
+      !isStringArray(item.categories) ||
+      !isRisk(item.risk) ||
+      !isSentiment(item.sentiment) ||
       (typeof item.publishedAt !== "string" && item.publishedAt !== null)
     ) {
       return null;
@@ -79,6 +95,9 @@ function parseStories(value: unknown): Story[] | null {
       url: item.url,
       sources: item.sources,
       publishedAt: item.publishedAt,
+      categories: item.categories,
+      risk: item.risk,
+      sentiment: item.sentiment,
     });
   }
   return stories;
@@ -456,10 +475,17 @@ export function App() {
         ) : (
           <ol className="story-ledger">
             {stories.map((story) => (
-              <li className="story-row" key={story.id}>
+              <li className={`story-row risk-${story.risk.toLowerCase()}`} key={story.id}>
                 <span className="story-spine" aria-hidden="true" />
                 <div className="story-content">
                   <ExternalStoryLink story={story} />
+                  <div className="story-analysis">
+                    <span className={`risk-chip risk-${story.risk.toLowerCase()}`}>Risk: {story.risk}</span>
+                    <span className="sentiment-label">Tone: {story.sentiment}</span>
+                    {story.categories.map((category) => (
+                      <span className="tag-chip" key={category}>{category}</span>
+                    ))}
+                  </div>
                   <dl className="story-metadata">
                     <div>
                       <dt>Source</dt>

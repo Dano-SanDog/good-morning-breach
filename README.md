@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. The remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The first end-to-end slice is implemented: one-shot CERT-EU collection, initial-admin setup, password plus authenticator sign-in, and an authenticated recent-stories dashboard. A partial analysis baseline now assigns categories, risk, and sentiment to CERT-EU headlines and ranks stories by risk. Full source coverage, admin-editable categories, richer analysis, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 

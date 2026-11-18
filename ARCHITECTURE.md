@@ -72,8 +72,8 @@ The first implementation runs the HTTP API and CERT-EU collection scheduler in *
 | Audit log | Records admin actions and lets admins read them | Append-only | Admin action records | FR-9.6 | PLANNED |
 | Source registry | Sources, license records, content rights | FR-1.5, FR-1.6, FR-1.15, FR-1.16, FR-8.1 to FR-8.3, FR-8.8, FR-8.9 | Sources, license records, source status | FR-8 | PLANNED |
 | Collector (job) | One-shot fetch of the seeded CERT-EU RSS source | Normalizes and de-duplicates stories; records failures | Collection results | FR-1, FR-8.6, FR-8.7 | PARTIAL |
-| Analyzer (job) | Assigns categories, sentiment, risk, ATT&CK tags, summaries, and CVE links | FR-2.1 to FR-2.6, FR-3, FR-7.1, FR-1.13; skips Reddit text; no summary where FR-8.9 forbids one | Category, sentiment, risk, and tag assignments | FR-2, FR-3, FR-7 | PLANNED |
-| Story store | Ingested stories and source associations; limited recent-story query | Canonical-link de-duplication and source attribution | Stories | FR-1.12, FR-5.3 to FR-5.5, FR-10.1 | PARTIAL |
+| Analyzer (job) | Applies deterministic headline keyword rules for categories, sentiment, and risk | Assigns baseline categories and scores to collected CERT-EU headlines; structured feed data, permitted article text, ATT&CK mapping, summaries, and CVE links remain unimplemented | Category, sentiment, and risk assignments | FR-2.1 to FR-2.4, FR-3 | PARTIAL |
+| Story store | Ingested stories, source associations, and baseline analysis; limited recent-story query | Canonical-link de-duplication, source attribution, and risk-first ordering | Stories and baseline analysis | FR-1.12, FR-2.1 to FR-2.4, FR-3, FR-5.2, FR-5.3, FR-10.1 | PARTIAL |
 | Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | PLANNED |
 | Alerting (job) | Per-user schedule, story selection, rendering, delivery, retries | FR-4.5 to FR-4.19; FR-8.8 and FR-8.11 on every channel | Alert settings, delivery records | FR-4, FR-10.2 | PLANNED |
 | Channel adapters | Email, SMS, and Slack transport only | None | None | FR-4.2 to FR-4.4 | PLANNED |
@@ -83,7 +83,7 @@ The first implementation runs the HTTP API and CERT-EU collection scheduler in *
 ### Main data flows
 
 1. **Collect (current):** server scheduler (startup + hourly) or `cmd/collect` → Collector → CERT-EU RSS (HTTPS) → Collector validates and normalizes → Story store. The persisted 24-hour source interval prevents unnecessary fetches; failures are recorded and logged. Scheduling while the server is stopped and additional sources remain future work.
-2. **Analyze:** Story store → Analyzer (with ATT&CK data and the source's content rights) → Story store.
+2. **Analyze (current baseline):** the Collector applies deterministic keyword rules to CERT-EU headlines and persists categories, risk, and sentiment with each story. Structured feed data, source content-rights checks, ATT&CK mapping, and CVE links remain future work.
 3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, or Source registry → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.
 5. **Administer:** browser → HTTP API → Identity (admin check) → Source registry or Identity → Audit log.
@@ -96,7 +96,7 @@ The first implementation runs the HTTP API and CERT-EU collection scheduler in *
 - **TB-4 Process ↔ PostgreSQL and secrets on disk.** PostgreSQL listens on localhost only. `cmd/collect` and `cmd/server` use the restricted `gb_app` role; `cmd/migrate` and `cmd/bootstrap` use the local database owner. The server and bootstrap command access the application data key. Secrets at rest are owned by `SECURITY.md`.
 - **TB-5 Operator ↔ installation.** The first admin is created at install time (FR-9.7) through a local setup step, not through the web.
 
-**Analysis method (CONFIRMED, AQ-3).** The Analyzer runs local rules only, and no collected content leaves the machine. Rules combine keyword and pattern matching on the title and permitted text, structured feed fields (CVSS, CISA KEV membership, EPSS, CVE IDs, vendor advisory severity), and the names and aliases in the MITRE ATT&CK bundle. The Analyzer generates no free-text summaries. Where FR-8.8 permits "system summary" or "verbatim excerpt", the "short summary" shown (FR-4.12, FR-5.2) is a truncated verbatim excerpt. Where only "headline and link" is permitted, no summary is shown. This satisfies FR-8.9 by construction. The exact rules are TO BE DECIDED in later steps.
+**Analysis method (CONFIRMED, AQ-3).** The Analyzer runs local rules only, and no collected content leaves the machine. The current partial implementation applies deterministic keyword rules to CERT-EU headlines; it does not inspect article bodies or structured feed metadata, and it does not yet map ATT&CK techniques or CVE links. The planned full analysis combines keyword and pattern matching on titles and permitted text, structured feed fields (CVSS, CISA KEV membership, EPSS, CVE IDs, vendor advisory severity), and names and aliases in the MITRE ATT&CK bundle. The Analyzer generates no free-text summaries. Where FR-8.8 permits "system summary" or "verbatim excerpt", the "short summary" shown (FR-4.12, FR-5.2) is a truncated verbatim excerpt. Where only "headline and link" is permitted, no summary is shown. This satisfies FR-8.9 by construction. The exact full rules remain TO BE DECIDED in later steps.
 
 ## Dependency Rules
 

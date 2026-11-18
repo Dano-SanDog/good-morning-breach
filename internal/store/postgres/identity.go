@@ -328,13 +328,25 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 	rows, err := s.pool.Query(queryCtx, `SELECT
 		stories.id, stories.title, stories.canonical_url,
 		COALESCE(stories.published_at, stories.created_at),
-		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name)
+		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
+		stories.risk,
+		stories.sentiment,
+		array_agg(DISTINCT categories.name ORDER BY categories.name)
 		FROM stories
 		JOIN story_sources ON story_sources.story_id = stories.id
 		JOIN data_sources ON data_sources.id = story_sources.source_id
+		JOIN story_categories ON story_categories.story_id = stories.id
+		JOIN categories ON categories.id = story_categories.category_id
 		WHERE COALESCE(stories.published_at, stories.created_at) >= $1
 		GROUP BY stories.id
-		ORDER BY COALESCE(stories.published_at, stories.created_at) DESC
+		ORDER BY CASE stories.risk
+			WHEN 'Critical' THEN 0
+			WHEN 'High' THEN 1
+			WHEN 'Medium' THEN 2
+			WHEN 'Low' THEN 3
+			ELSE 4
+		END,
+		COALESCE(stories.published_at, stories.created_at) DESC
 		LIMIT 100`, after)
 	if err != nil {
 		return nil, fmt.Errorf("query recent stories: %w", err)
@@ -349,6 +361,9 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 			&story.URL,
 			&story.PublishedAt,
 			&story.Sources,
+			&story.Risk,
+			&story.Sentiment,
+			&story.Categories,
 		); err != nil {
 			return nil, fmt.Errorf("scan recent story: %w", err)
 		}
