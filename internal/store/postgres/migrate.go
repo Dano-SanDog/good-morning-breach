@@ -25,6 +25,15 @@ var attackMigration string
 //go:embed migrations/005_sans_isc.sql
 var sansMigration string
 
+//go:embed migrations/006_cert_fr.sql
+var certFRMigration string
+
+//go:embed migrations/007_cisa_advisories.sql
+var cisaAdvisoriesMigration string
+
+//go:embed migrations/008_eff_deeplinks.sql
+var effDeeplinksMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -38,6 +47,9 @@ var migrations = []migration{
 	{version: 3, sql: analysisMigration},
 	{version: 4, sql: attackMigration},
 	{version: 5, sql: sansMigration},
+	{version: 6, sql: certFRMigration},
+	{version: 7, sql: cisaAdvisoriesMigration},
+	{version: 8, sql: effDeeplinksMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
