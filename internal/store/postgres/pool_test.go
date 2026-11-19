@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,53 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 		}
 	}
 	store := NewIdentityStore(pool)
+	if _, err := pool.Exec(ctx, `CREATE TEMP TABLE accounts (id bigint PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	migration := strings.Replace(alertSettingsMigration, "CREATE TABLE alert_settings", "CREATE TEMP TABLE alert_settings", 1)
+	for _, statement := range strings.Split(migration, ";") {
+		if strings.TrimSpace(statement) != "" {
+			if _, err := pool.Exec(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO accounts VALUES (1), (2)`); err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := store.GetAlertSettings(ctx, 1)
+	if err != nil || !defaults.Enabled || defaults.Time != "07:00" || defaults.TimeZone != "" ||
+		len(defaults.Days) != 7 || defaults.MinimumRisk != "Medium" {
+		t.Fatalf("default alert settings = %+v, error %v", defaults, err)
+	}
+	settings := identity.AlertSettings{Enabled: true, Time: "08:30", TimeZone: "America/Los_Angeles",
+		Days: []int16{1, 3, 5}, MinimumRisk: "High"}
+	if err := store.SaveAlertSettings(ctx, 1, settings); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveAlertSettings(ctx, 2, identity.AlertSettings{Enabled: false, Time: "07:00",
+		TimeZone: "UTC", Days: []int16{0}, MinimumRisk: "Low"}); err != nil {
+		t.Fatal(err)
+	}
+	settings.Time = "09:15"
+	if err := store.SaveAlertSettings(ctx, 1, settings); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := store.GetAlertSettings(ctx, 1)
+	if err != nil || stored.Time != "09:15" || stored.TimeZone != settings.TimeZone || len(stored.Days) != 3 {
+		t.Fatalf("saved alert settings = %+v, error %v", stored, err)
+	}
+	second, err := store.GetAlertSettings(ctx, 2)
+	if err != nil || second.Enabled || second.TimeZone != "UTC" {
+		t.Fatalf("second account settings = %+v, error %v", second, err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM accounts WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM alert_settings WHERE account_id = 1`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("deleted account settings remaining = %d, error %v", remaining, err)
+	}
 	statuses, err := store.ListSourceStatuses(ctx)
 	if err != nil {
 		t.Fatal(err)

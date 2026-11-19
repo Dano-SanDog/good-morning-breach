@@ -423,6 +423,7 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.alert-settings,
 .source-health,
 .story-filters {
   margin: 20px 0;
@@ -439,6 +440,7 @@ button:disabled {
   min-width: 700px;
 }
 
+.alert-settings summary,
 .source-health summary,
 .story-filters summary {
   min-height: 44px;
@@ -446,6 +448,65 @@ button:disabled {
   color: #2e2a8c;
   font-weight: 600;
   cursor: pointer;
+}
+
+.alert-settings form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.alert-settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.alert-settings-fields label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.alert-settings-fields input,
+.alert-settings-fields select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #7c7898;
+  border-radius: 3px;
+  background: #fff;
+  color: #1d1a3b;
+  font: inherit;
+}
+
+.alert-settings-fields small {
+  color: #4e4a6b;
+  font-weight: 400;
+}
+
+.alert-settings fieldset {
+  margin: 0;
+  border: 1px solid #7c7898;
+}
+
+.alert-toggle,
+.alert-days label {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 16px;
+}
+
+.alert-settings .primary-button {
+  justify-self: start;
+  margin: 0;
 }
 
 .source-warning {

@@ -35,6 +35,8 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.POST("/api/auth/totp/login", requireCSRF(), api.completeTOTPLogin)
 	router.POST("/api/auth/logout", requireCSRF(), api.logout)
 	router.GET("/api/stories", api.stories)
+	router.GET("/api/alert-settings", api.getAlertSettings)
+	router.PUT("/api/alert-settings", requireCSRF(), api.saveAlertSettings)
 	router.GET("/api/admin/accounts", api.adminAccounts)
 	router.POST("/api/admin/accounts", requireCSRF(), api.createAccount)
 	router.PATCH("/api/admin/accounts/:id", requireCSRF(), api.updateAccount)
@@ -293,6 +295,56 @@ func storyFilter(c *gin.Context) (identity.StoryFilter, error) {
 		filter.Offset = offset
 	}
 	return filter, nil
+}
+
+func (h *apiHandlers) getAlertSettings(c *gin.Context) {
+	token, _ := c.Cookie(sessionCookieName)
+	settings, err := h.identity.GetAlertSettings(c.Request.Context(), token)
+	if errors.Is(err, identity.ErrSession) || errors.Is(err, identity.ErrNotFound) {
+		logAuthorizationDenial(c)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
+		return
+	}
+	if err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, settings)
+}
+
+func (h *apiHandlers) saveAlertSettings(c *gin.Context) {
+	var request struct {
+		Enabled     *bool    `json:"enabled"`
+		Time        *string  `json:"time"`
+		TimeZone    *string  `json:"timeZone"`
+		Days        *[]int16 `json:"days"`
+		MinimumRisk *string  `json:"minimumRisk"`
+	}
+	if err := decodeStrictJSON(c, &request); err != nil ||
+		request.Enabled == nil || request.Time == nil || request.TimeZone == nil ||
+		request.Days == nil || request.MinimumRisk == nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid alert settings."})
+		return
+	}
+	settings := identity.AlertSettings{
+		Enabled: *request.Enabled, Time: *request.Time, TimeZone: *request.TimeZone,
+		Days: *request.Days, MinimumRisk: *request.MinimumRisk,
+	}
+	if err := identity.ValidateAlertSettings(settings); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid alert settings."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	if err := h.identity.SaveAlertSettings(c.Request.Context(), token, settings); err != nil {
+		if errors.Is(err, identity.ErrSession) || errors.Is(err, identity.ErrNotFound) {
+			logAuthorizationDenial(c)
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func (h *apiHandlers) adminAccounts(c *gin.Context) {

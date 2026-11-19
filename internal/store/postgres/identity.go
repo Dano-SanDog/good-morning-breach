@@ -760,6 +760,36 @@ func (s *IdentityStore) ListSourceStatuses(ctx context.Context) ([]identity.Sour
 	return statuses, nil
 }
 
+func (s *IdentityStore) GetAlertSettings(ctx context.Context, accountID int64) (identity.AlertSettings, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+	var settings identity.AlertSettings
+	err := s.pool.QueryRow(queryCtx, `SELECT enabled, alert_time, time_zone, days, minimum_risk
+		FROM alert_settings WHERE account_id = $1`, accountID).Scan(
+		&settings.Enabled, &settings.Time, &settings.TimeZone, &settings.Days, &settings.MinimumRisk)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.AlertSettings{Enabled: true, Time: "07:00", Days: []int16{0, 1, 2, 3, 4, 5, 6}, MinimumRisk: "Medium"}, nil
+	}
+	if err != nil {
+		return identity.AlertSettings{}, fmt.Errorf("read alert settings: %w", err)
+	}
+	return settings, nil
+}
+
+func (s *IdentityStore) SaveAlertSettings(ctx context.Context, accountID int64, settings identity.AlertSettings) error {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+	_, err := s.pool.Exec(queryCtx, `INSERT INTO alert_settings (account_id, enabled, alert_time, time_zone, days, minimum_risk)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (account_id) DO UPDATE SET enabled = EXCLUDED.enabled, alert_time = EXCLUDED.alert_time,
+		time_zone = EXCLUDED.time_zone, days = EXCLUDED.days, minimum_risk = EXCLUDED.minimum_risk`,
+		accountID, settings.Enabled, settings.Time, settings.TimeZone, settings.Days, settings.MinimumRisk)
+	if err != nil {
+		return fmt.Errorf("save alert settings: %w", err)
+	}
+	return nil
+}
+
 func scanAccount(row pgx.Row) (identity.Account, error) {
 	var account identity.Account
 	var enrolledAt *time.Time

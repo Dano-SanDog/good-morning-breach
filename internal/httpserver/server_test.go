@@ -283,6 +283,50 @@ func TestSourceHealthEndpointEnforcesRole(t *testing.T) {
 	}
 }
 
+func TestAlertSettingsEndpoint(t *testing.T) {
+	store := &sourceHealthIdentityStore{role: "user"}
+	service, err := identity.NewService(store, make([]byte, 32), http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := newRouter(service, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := `{"enabled":true,"time":"07:00","timeZone":"America/Los_Angeles","days":[1,2],"minimumRisk":"Medium"}`
+	for _, tc := range []struct {
+		body    string
+		csrf    bool
+		session bool
+		want    int
+	}{
+		{valid, false, true, http.StatusForbidden},
+		{valid, true, false, http.StatusUnauthorized},
+		{strings.Replace(valid, `"Medium"`, `"Severe"`, 1), true, true, http.StatusBadRequest},
+		{strings.Replace(valid, `"America/Los_Angeles"`, `"Mars/Base"`, 1), true, true, http.StatusBadRequest},
+		{strings.Replace(valid, `"days":[1,2]`, `"days":[1,1]`, 1), true, true, http.StatusBadRequest},
+		{strings.Replace(valid, `"enabled":true`, `"enabled":true,"accountId":2`, 1), true, true, http.StatusBadRequest},
+		{valid, true, true, http.StatusNoContent},
+	} {
+		request := httptest.NewRequest(http.MethodPut, "/api/alert-settings", strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		if tc.csrf {
+			request.Header.Set("X-GMB-CSRF", "1")
+		}
+		if tc.session {
+			request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "test-session"})
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != tc.want {
+			t.Errorf("body=%s: status = %d; want %d", tc.body, response.Code, tc.want)
+		}
+	}
+	if store.savedAlertAccountID != 1 {
+		t.Fatalf("settings saved for account %d; want current account 1", store.savedAlertAccountID)
+	}
+}
+
 func TestPasswordOnlyAdminLoginReturnsAuthenticatedSession(t *testing.T) {
 	passwordHash, err := identity.HashPassword("a sufficiently long password")
 	if err != nil {
@@ -355,7 +399,8 @@ type unauthenticatedIdentityStore struct{}
 
 type sourceHealthIdentityStore struct {
 	unauthenticatedIdentityStore
-	role string
+	role                string
+	savedAlertAccountID int64
 }
 
 func (s *sourceHealthIdentityStore) LoadSession(context.Context, []byte, time.Time) (identity.Session, error) {
@@ -364,6 +409,11 @@ func (s *sourceHealthIdentityStore) LoadSession(context.Context, []byte, time.Ti
 
 func (*sourceHealthIdentityStore) ListSourceStatuses(context.Context) ([]identity.SourceStatus, error) {
 	return nil, nil
+}
+
+func (s *sourceHealthIdentityStore) SaveAlertSettings(_ context.Context, accountID int64, _ identity.AlertSettings) error {
+	s.savedAlertAccountID = accountID
+	return nil
 }
 
 type passwordOnlyIdentityStore struct {
@@ -401,6 +451,12 @@ func (*unauthenticatedIdentityStore) ListAdminAudit(context.Context) ([]identity
 }
 func (*unauthenticatedIdentityStore) ListSourceStatuses(context.Context) ([]identity.SourceStatus, error) {
 	return nil, errors.New("unexpected call")
+}
+func (*unauthenticatedIdentityStore) GetAlertSettings(context.Context, int64) (identity.AlertSettings, error) {
+	return identity.AlertSettings{}, errors.New("unexpected call")
+}
+func (*unauthenticatedIdentityStore) SaveAlertSettings(context.Context, int64, identity.AlertSettings) error {
+	return errors.New("unexpected call")
 }
 func (*unauthenticatedIdentityStore) AccountByEmail(context.Context, string) (identity.Account, error) {
 	return identity.Account{}, identity.ErrNotFound

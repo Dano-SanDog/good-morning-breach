@@ -22,6 +22,7 @@ var (
 	ErrInvalidEmail         = errors.New("enter a valid email address")
 	ErrInvalidRole          = errors.New("account role must be admin or user")
 	ErrInvalidAccountUpdate = errors.New("provide a valid role or enabled status change")
+	ErrInvalidAlertSettings = errors.New("invalid alert settings")
 )
 
 type Account struct {
@@ -119,6 +120,14 @@ type StoryFilter struct {
 	Offset   int
 }
 
+type AlertSettings struct {
+	Enabled     bool    `json:"enabled"`
+	Time        string  `json:"time"`
+	TimeZone    string  `json:"timeZone"`
+	Days        []int16 `json:"days"`
+	MinimumRisk string  `json:"minimumRisk"`
+}
+
 type Store interface {
 	CreateAdmin(context.Context, string, string) (int64, error)
 	ListAccounts(context.Context) ([]ManagedAccount, error)
@@ -127,6 +136,8 @@ type Store interface {
 	DeleteAccount(context.Context, int64, int64) error
 	ListAdminAudit(context.Context) ([]AdminAuditRecord, error)
 	ListSourceStatuses(context.Context) ([]SourceStatus, error)
+	GetAlertSettings(context.Context, int64) (AlertSettings, error)
+	SaveAlertSettings(context.Context, int64, AlertSettings) error
 	AccountByEmail(context.Context, string) (Account, error)
 	RecordFailedLogin(context.Context, int64, time.Time) (bool, error)
 	CreatePartialSession(context.Context, []byte, []byte, int64, time.Time, time.Time) error

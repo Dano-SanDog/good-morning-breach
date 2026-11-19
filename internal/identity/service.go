@@ -187,6 +187,52 @@ func (s *Service) ListSourceStatuses(ctx context.Context, token string) ([]Sourc
 	return statuses, nil
 }
 
+func (s *Service) GetAlertSettings(ctx context.Context, token string) (AlertSettings, error) {
+	user, err := s.CurrentUser(ctx, token)
+	if err != nil {
+		return AlertSettings{}, err
+	}
+	return s.store.GetAlertSettings(ctx, user.AccountID)
+}
+
+func (s *Service) SaveAlertSettings(ctx context.Context, token string, settings AlertSettings) error {
+	user, err := s.CurrentUser(ctx, token)
+	if err != nil {
+		return err
+	}
+	if err := ValidateAlertSettings(settings); err != nil {
+		return err
+	}
+	return s.store.SaveAlertSettings(ctx, user.AccountID, settings)
+}
+
+func ValidateAlertSettings(settings AlertSettings) error {
+	parsed, err := time.Parse("15:04", settings.Time)
+	if err != nil || parsed.Format("15:04") != settings.Time ||
+		settings.TimeZone == "" || settings.TimeZone == "Local" || len(settings.TimeZone) > 100 {
+		return ErrInvalidAlertSettings
+	}
+	if _, err := time.LoadLocation(settings.TimeZone); err != nil {
+		return ErrInvalidAlertSettings
+	}
+	switch settings.MinimumRisk {
+	case "Critical", "High", "Medium", "Low", "Informational":
+	default:
+		return ErrInvalidAlertSettings
+	}
+	if len(settings.Days) < 1 || len(settings.Days) > 7 {
+		return ErrInvalidAlertSettings
+	}
+	var seen [7]bool
+	for _, day := range settings.Days {
+		if day < 0 || day > 6 || seen[day] {
+			return ErrInvalidAlertSettings
+		}
+		seen[day] = true
+	}
+	return nil
+}
+
 func (s *Service) requireAdmin(ctx context.Context, token string) (AuthenticatedUser, error) {
 	user, err := s.CurrentUser(ctx, token)
 	if err != nil {

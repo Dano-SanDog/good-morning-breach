@@ -250,6 +250,46 @@ func TestSourceHealthWarningsAndAuthorization(t *testing.T) {
 	}
 }
 
+func TestAlertSettingsValidationAndAccountIsolation(t *testing.T) {
+	service, store, firstToken := serviceWithAuthenticatedAccount(t, "user")
+	valid := AlertSettings{Enabled: true, Time: "07:00", TimeZone: "America/Los_Angeles",
+		Days: []int16{0, 1, 2, 3, 4, 5, 6}, MinimumRisk: "Medium"}
+	if err := service.SaveAlertSettings(context.Background(), firstToken, valid); err != nil {
+		t.Fatal(err)
+	}
+	secondService, secondStore, secondToken := serviceWithAuthenticatedAccount(t, "user")
+	secondStore.account.ID = 2
+	secondStore.alertSettings = store.alertSettings
+	other := valid
+	other.Time = "08:30"
+	if err := secondService.SaveAlertSettings(context.Background(), secondToken, other); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := service.GetAlertSettings(context.Background(), firstToken)
+	if err != nil || saved.Time != "07:00" || store.alertSettings[2].Time != "08:30" {
+		t.Fatalf("settings were not isolated: first=%+v second=%+v err=%v", saved, store.alertSettings[2], err)
+	}
+	for _, invalid := range []AlertSettings{
+		{Time: "7:00", TimeZone: valid.TimeZone, Days: valid.Days, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: "Mars/Base", Days: valid.Days, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: "Local", Days: valid.Days, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: valid.TimeZone, Days: []int16{1, 1}, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: valid.TimeZone, Days: []int16{7}, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: valid.TimeZone, Days: nil, MinimumRisk: "Medium"},
+		{Time: "07:00", TimeZone: valid.TimeZone, Days: valid.Days, MinimumRisk: "Severe"},
+	} {
+		if err := service.SaveAlertSettings(context.Background(), firstToken, invalid); !errors.Is(err, ErrInvalidAlertSettings) {
+			t.Errorf("invalid settings %+v: %v", invalid, err)
+		}
+	}
+	if store.alertSettings[1].Time != "07:00" {
+		t.Fatal("invalid request changed saved settings")
+	}
+	if err := service.SaveAlertSettings(context.Background(), "", valid); !errors.Is(err, ErrSession) {
+		t.Fatalf("unauthenticated save = %v", err)
+	}
+}
+
 func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memoryIdentityStore, string) {
 	t.Helper()
 	store := &memoryIdentityStore{
@@ -286,6 +326,7 @@ type memoryIdentityStore struct {
 	managedAccounts []ManagedAccount
 	adminAudit      []AdminAuditRecord
 	sourceStatuses  []SourceStatus
+	alertSettings   map[int64]AlertSettings
 	nextAccountID   int64
 }
 
@@ -346,6 +387,16 @@ func (s *memoryIdentityStore) ListAdminAudit(context.Context) ([]AdminAuditRecor
 
 func (s *memoryIdentityStore) ListSourceStatuses(context.Context) ([]SourceStatus, error) {
 	return s.sourceStatuses, nil
+}
+func (s *memoryIdentityStore) GetAlertSettings(_ context.Context, accountID int64) (AlertSettings, error) {
+	return s.alertSettings[accountID], nil
+}
+func (s *memoryIdentityStore) SaveAlertSettings(_ context.Context, accountID int64, settings AlertSettings) error {
+	if s.alertSettings == nil {
+		s.alertSettings = make(map[int64]AlertSettings)
+	}
+	s.alertSettings[accountID] = settings
+	return nil
 }
 
 func (s *memoryIdentityStore) AccountByEmail(_ context.Context, email string) (Account, error) {

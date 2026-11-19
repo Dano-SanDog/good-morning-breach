@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { App, ExternalStoryLink, getSafeExternalURL, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
+import { App, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
   const markup = renderToStaticMarkup(createElement(App));
@@ -104,6 +104,14 @@ test("validates source health data before displaying it", () => {
   expect(parseSourceStatuses({ sources: [status] })?.[0]?.warning).toBe(true);
   expect(parseSourceStatuses({ sources: [{ ...status, failingSince: "invalid" }] })).toBeNull();
   expect(parseSourceStatuses({ sources: [{ ...status, warning: "true" }] })).toBeNull();
+});
+
+test("validates alert settings received from the server", () => {
+  const settings = { enabled: true, time: "07:00", timeZone: "", days: [0, 1, 2, 3, 4, 5, 6], minimumRisk: "Medium" };
+  expect(parseAlertSettings(settings)).toEqual(settings);
+  expect(parseAlertSettings({ ...settings, days: [1, 1] })).toBeNull();
+  expect(parseAlertSettings({ ...settings, days: [7] })).toBeNull();
+  expect(parseAlertSettings({ ...settings, minimumRisk: "Severe" })).toBeNull();
 });
 
 test("builds inclusive local date ranges and rejects incomplete ranges", () => {

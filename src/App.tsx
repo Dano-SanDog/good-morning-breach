@@ -39,6 +39,14 @@ type StoryFilters = {
   start: string;
   end: string;
 };
+type AlertSettings = {
+  enabled: boolean;
+  time: string;
+  timeZone: string;
+  days: number[];
+  minimumRisk: string;
+};
+const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const emptyFilters: StoryFilters = { search: "", category: "", risk: "", source: "", attack: "", start: "", end: "" };
 type AttackTechnique = {
   id: string;
@@ -189,7 +197,7 @@ async function responseError(response: Response): Promise<string> {
 
 async function mutateJSON(
   path: string,
-  method: "POST" | "PATCH" | "DELETE",
+  method: "POST" | "PUT" | "PATCH" | "DELETE",
   value: Record<string, unknown> = {},
 ): Promise<Response> {
   return fetch(path, {
@@ -263,6 +271,20 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
   return records;
 }
 
+export function parseAlertSettings(value: unknown): AlertSettings | null {
+  if (!isRecord(value) || typeof value.enabled !== "boolean" ||
+      typeof value.time !== "string" || !/^\d{2}:\d{2}$/.test(value.time) ||
+      typeof value.timeZone !== "string" || !Array.isArray(value.days) ||
+      value.days.length < 1 || value.days.length > 7 ||
+      !value.days.every((day: unknown) => typeof day === "number" && Number.isInteger(day) && day >= 0 && day <= 6) ||
+      new Set(value.days).size !== value.days.length ||
+      typeof value.minimumRisk !== "string" || !riskValues.has(value.minimumRisk)) return null;
+  return {
+    enabled: value.enabled, time: value.time, timeZone: value.timeZone,
+    days: value.days, minimumRisk: value.minimumRisk,
+  };
+}
+
 function nullableTimestamp(value: unknown): value is string | null {
   return value === null || (typeof value === "string" && Number.isFinite(Date.parse(value)));
 }
@@ -331,6 +353,8 @@ export function App() {
   const [stories, setStories] = useState<Story[]>([]);
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([]);
   const [adminAudit, setAdminAudit] = useState<AdminAuditRecord[]>([]);
+  const [alertSettings, setAlertSettings] = useState<AlertSettings | null>(null);
+  const [alertSaved, setAlertSaved] = useState(false);
   const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[] | null>(null);
   const [filterDraft, setFilterDraft] = useState<StoryFilters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<StoryFilters>(emptyFilters);
@@ -368,6 +392,14 @@ export function App() {
     const statuses = parseSourceStatuses(await response.json());
     if (!statuses) throw new Error("The server returned invalid source health data.");
     setSourceStatuses(statuses);
+  }, []);
+
+  const loadAlertSettings = useCallback(async () => {
+    const response = await fetch("/api/alert-settings", { credentials: "same-origin" });
+    if (!response.ok) throw new Error(await responseError(response));
+    const settings = parseAlertSettings(await response.json());
+    if (!settings) throw new Error("The server returned invalid alert settings.");
+    setAlertSettings({ ...settings, timeZone: settings.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "" });
   }, []);
 
   const loadAdminData = useCallback(async () => {
@@ -419,7 +451,7 @@ export function App() {
       setMessage("");
       try {
         setFilterDraft(emptyFilters);
-        const requests: Promise<void>[] = [loadStories(emptyFilters, 0)];
+        const requests: Promise<void>[] = [loadStories(emptyFilters, 0), loadAlertSettings()];
         if (signedInUser.role === "admin") {
           requests.push(loadAdminData(), loadSourceStatuses());
         }
@@ -428,7 +460,7 @@ export function App() {
         setMessage(error instanceof Error ? error.message : "Could not load dashboard data.");
       }
     },
-    [loadAdminData, loadSourceStatuses, loadStories],
+    [loadAdminData, loadAlertSettings, loadSourceStatuses, loadStories],
   );
 
   useEffect(() => {
@@ -595,10 +627,29 @@ export function App() {
       setManagedAccounts([]);
       setAdminAudit([]);
       setSourceStatuses(null);
+      setAlertSettings(null);
+      setAlertSaved(false);
       setCode("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSaveAlertSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!alertSettings) return;
+    setBusy(true);
+    setMessage("");
+    setAlertSaved(false);
+    try {
+      const response = await mutateJSON("/api/alert-settings", "PUT", alertSettings);
+      if (!response.ok) throw new Error(await responseError(response));
+      setAlertSaved(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save alert settings.");
     } finally {
       setBusy(false);
     }
@@ -781,6 +832,44 @@ export function App() {
           <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"} on this page</span>
         </div>
         {message && <p className="message" role="alert">{message}</p>}
+        <details className="alert-settings">
+          <summary>Email alert preferences</summary>
+          <p>These preferences are saved for future use. Email delivery is not available yet; no alerts will be sent.</p>
+          {alertSettings === null ? <p className="muted">Alert settings are unavailable.</p> : (
+            <form onSubmit={handleSaveAlertSettings}>
+              <label className="alert-toggle"><input type="checkbox" checked={alertSettings.enabled} onChange={(event) => {
+                setAlertSaved(false); setAlertSettings({ ...alertSettings, enabled: event.target.checked });
+              }} /> Enable email alerts when delivery becomes available</label>
+              <div className="alert-settings-fields">
+                <label>Time<input type="time" required value={alertSettings.time} onChange={(event) => {
+                  setAlertSaved(false); setAlertSettings({ ...alertSettings, time: event.target.value });
+                }} /></label>
+                <label>Time zone<input required maxLength={100} value={alertSettings.timeZone} onChange={(event) => {
+                  setAlertSaved(false); setAlertSettings({ ...alertSettings, timeZone: event.target.value });
+                }} /><small>Use an IANA time zone, such as America/Los_Angeles.</small></label>
+                <label>Minimum risk<select value={alertSettings.minimumRisk} onChange={(event) => {
+                  setAlertSaved(false); setAlertSettings({ ...alertSettings, minimumRisk: event.target.value });
+                }}>{Array.from(riskValues).map((risk) => <option key={risk} value={risk}>{risk}</option>)}</select></label>
+              </div>
+              <fieldset>
+                <legend>Days</legend>
+                <div className="alert-days">
+                  {weekdays.map((day, index) => <label key={day}>
+                    <input type="checkbox" checked={alertSettings.days.includes(index)} onChange={(event) => {
+                      const days = event.target.checked
+                        ? [...alertSettings.days, index].sort((a, b) => a - b)
+                        : alertSettings.days.filter((value) => value !== index);
+                      setAlertSaved(false); setAlertSettings({ ...alertSettings, days });
+                    }} /> {day}
+                  </label>)}
+                </div>
+              </fieldset>
+              {alertSettings.days.length === 0 && <p className="message" role="alert">Select at least one day.</p>}
+              <button type="submit" className="primary-button" disabled={busy || alertSettings.days.length === 0}>Save preferences</button>
+              {alertSaved && <p role="status">Preferences saved. Email alerts are not available yet.</p>}
+            </form>
+          )}
+        </details>
         {user?.role === "admin" && (
           <section className="source-health" aria-labelledby="source-health-heading">
             <h2 id="source-health-heading">Source health</h2>
