@@ -171,6 +171,22 @@ func (s *Service) ListAdminAudit(ctx context.Context, token string) ([]AdminAudi
 	return s.store.ListAdminAudit(ctx)
 }
 
+func (s *Service) ListSourceStatuses(ctx context.Context, token string) ([]SourceStatus, error) {
+	if _, err := s.requireAdmin(ctx, token); err != nil {
+		return nil, err
+	}
+	statuses, err := s.store.ListSourceStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range statuses {
+		status := &statuses[i]
+		status.Warning = status.Enabled && status.FailingSince != nil &&
+			!status.FailingSince.After(s.now().Add(-24*time.Hour))
+	}
+	return statuses, nil
+}
+
 func (s *Service) requireAdmin(ctx context.Context, token string) (AuthenticatedUser, error) {
 	user, err := s.CurrentUser(ctx, token)
 	if err != nil {
@@ -368,11 +384,14 @@ func (s *Service) CurrentChallenge(ctx context.Context, token string) (Challenge
 	return Challenge{Next: next}, nil
 }
 
-func (s *Service) ListStories(ctx context.Context, token string) ([]Story, error) {
+func (s *Service) ListStories(ctx context.Context, token string, filter StoryFilter) ([]Story, error) {
 	if _, err := s.CurrentUser(ctx, token); err != nil {
 		return nil, err
 	}
-	return s.store.ListStories(ctx, s.now().Add(-24*time.Hour))
+	if filter.After.IsZero() {
+		filter.After = s.now().Add(-24 * time.Hour)
+	}
+	return s.store.ListStories(ctx, filter)
 }
 
 func (s *Service) TouchSession(ctx context.Context, token string) error {

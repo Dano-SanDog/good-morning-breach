@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { App, ExternalStoryLink, getSafeExternalURL, parseStories } from "./App";
+import { App, ExternalStoryLink, getSafeExternalURL, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
   const markup = renderToStaticMarkup(createElement(App));
@@ -51,6 +51,7 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       }],
     }],
   });
+
   expect(parsed?.[0]?.categories).toEqual(["__proto__"]);
   expect(parsed?.[0]?.risk).toBe("High");
   expect(parsed?.[0]?.sentiment).toBe("Negative");
@@ -92,4 +93,30 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       }],
     }],
   })).toBeNull();
+});
+
+test("validates source health data before displaying it", () => {
+  const status = {
+    id: "feed", name: "<feed>", enabled: true, lastSuccessAt: null,
+    lastFailureAt: "2026-01-01T00:00:00Z", lastFailureCause: "failed",
+    failingSince: "2026-01-01T00:00:00Z", warning: true,
+  };
+  expect(parseSourceStatuses({ sources: [status] })?.[0]?.warning).toBe(true);
+  expect(parseSourceStatuses({ sources: [{ ...status, failingSince: "invalid" }] })).toBeNull();
+  expect(parseSourceStatuses({ sources: [{ ...status, warning: "true" }] })).toBeNull();
+});
+
+test("builds inclusive local date ranges and rejects incomplete ranges", () => {
+  const filters = { search: "patch & fix", category: "", risk: "High", source: "", attack: "", start: "2026-03-08", end: "2026-03-08" };
+  const params = new URLSearchParams(storyFilterQuery(filters, 100));
+  expect(params.get("search")).toBe("patch & fix");
+  expect(params.get("offset")).toBe("100");
+  const start = new Date(params.get("after")!);
+  const end = new Date(params.get("before")!);
+  expect(start.getDate()).toBe(8);
+  expect(start.getHours()).toBe(0);
+  expect(end.getDate()).toBe(9);
+  expect(end.getHours()).toBe(0);
+  expect(() => storyFilterQuery({ ...filters, end: "" }, 0)).toThrow("both");
+  expect(() => storyFilterQuery({ ...filters, end: "2026-03-07" }, 0)).toThrow("valid");
 });

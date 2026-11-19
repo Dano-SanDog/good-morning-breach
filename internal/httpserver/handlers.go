@@ -9,6 +9,8 @@ import (
 	"mime"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
@@ -38,6 +40,7 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.PATCH("/api/admin/accounts/:id", requireCSRF(), api.updateAccount)
 	router.DELETE("/api/admin/accounts/:id", requireCSRF(), api.deleteAccount)
 	router.GET("/api/admin/audit", api.adminAudit)
+	router.GET("/api/admin/sources", api.adminSources)
 
 	fileServer := http.StripPrefix("/", http.FileServer(http.FS(assets)))
 	router.GET("/", func(c *gin.Context) {
@@ -224,7 +227,12 @@ func (h *apiHandlers) logout(c *gin.Context) {
 
 func (h *apiHandlers) stories(c *gin.Context) {
 	token, _ := c.Cookie(sessionCookieName)
-	stories, err := h.identity.ListStories(c.Request.Context(), token)
+	filter, err := storyFilter(c)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid story filters."})
+		return
+	}
+	stories, err := h.identity.ListStories(c.Request.Context(), token, filter)
 	if errors.Is(err, identity.ErrSession) {
 		logAuthorizationDenial(c)
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
@@ -237,7 +245,54 @@ func (h *apiHandlers) stories(c *gin.Context) {
 	if stories == nil {
 		stories = []identity.Story{}
 	}
-	c.JSON(http.StatusOK, gin.H{"stories": stories})
+	hasMore := len(stories) > 100
+	if hasMore {
+		stories = stories[:100]
+	}
+	c.JSON(http.StatusOK, gin.H{"stories": stories, "hasMore": hasMore})
+}
+
+func storyFilter(c *gin.Context) (identity.StoryFilter, error) {
+	query := c.Request.URL.Query()
+	allowed := map[string]bool{"after": true, "before": true, "search": true, "category": true,
+		"risk": true, "source": true, "attack": true, "offset": true}
+	for key, values := range query {
+		if !allowed[key] || len(values) != 1 || !utf8.ValidString(values[0]) || utf8.RuneCountInString(values[0]) > 200 {
+			return identity.StoryFilter{}, errors.New("invalid filter")
+		}
+	}
+	filter := identity.StoryFilter{
+		Search: strings.TrimSpace(query.Get("search")), Category: strings.TrimSpace(query.Get("category")),
+		Risk: query.Get("risk"), Source: strings.TrimSpace(query.Get("source")),
+		Attack: strings.TrimSpace(query.Get("attack")),
+	}
+	switch filter.Risk {
+	case "", "Critical", "High", "Medium", "Low", "Informational":
+	default:
+		return identity.StoryFilter{}, errors.New("invalid risk")
+	}
+	if value := query.Get("after"); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return identity.StoryFilter{}, err
+		}
+		filter.After = parsed
+	}
+	if value := query.Get("before"); value != "" {
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || filter.After.IsZero() || !parsed.After(filter.After) {
+			return identity.StoryFilter{}, errors.New("invalid date range")
+		}
+		filter.Before = &parsed
+	}
+	if value := query.Get("offset"); value != "" {
+		offset, err := strconv.Atoi(value)
+		if err != nil || offset < 0 || offset > 1_000_000 {
+			return identity.StoryFilter{}, errors.New("invalid offset")
+		}
+		filter.Offset = offset
+	}
+	return filter, nil
 }
 
 func (h *apiHandlers) adminAccounts(c *gin.Context) {
@@ -347,6 +402,22 @@ func (h *apiHandlers) adminAudit(c *gin.Context) {
 		records = []identity.AdminAuditRecord{}
 	}
 	c.JSON(http.StatusOK, gin.H{"events": records})
+}
+
+func (h *apiHandlers) adminSources(c *gin.Context) {
+	token, _ := c.Cookie(sessionCookieName)
+	statuses, err := h.identity.ListSourceStatuses(c.Request.Context(), token)
+	if err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	if statuses == nil {
+		statuses = []identity.SourceStatus{}
+	}
+	c.JSON(http.StatusOK, gin.H{"sources": statuses})
 }
 
 func writeAdminError(c *gin.Context, err error) bool {

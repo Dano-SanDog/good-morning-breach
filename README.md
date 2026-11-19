@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated recent-stories dashboard, and administrator account management with an audit log. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, and administrator account management with an audit log. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -50,9 +50,9 @@ The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-F
 
 ### Dashboard
 - Shows the last 24 hours by default, sorted by risk.
-- Filters by category, risk, source, date range, and ATT&CK tactic or technique; keyword search.
-- Shows current Cloudflare Radar data.
-- Admins see the status of each source and a warning when a source fails for 24 hours.
+- Filters by exact category, risk, source, and ATT&CK tactic or technique name or ID, plus local date range and title keyword search. Results are paginated in groups of 100; summaries are not yet stored or searchable.
+- Cloudflare Radar data is not yet implemented.
+- Admins see each source's last success, failure and cause, with a warning when an enabled source's first failure since its last success was at least 24 hours ago. An inactive collector alone does not count as a failure.
 
 ### Story Categorization
 One or more categories per story. Starting list: Vulnerability, Exploited Vulnerability, Ransomware, Malware, Data Breach, Phishing and Social Engineering, Nation-State Activity, Supply Chain, Cloud and Infrastructure, Internet Outage and DDoS, Policy and Regulation, Other. Admins can add, rename, and disable categories.
@@ -139,7 +139,7 @@ After migrations are applied and the client dependencies are installed:
      go run ./cmd/server
    ```
 
-6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, and EFF from the last 24 hours (up to 100). Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
+6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, and EFF from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
 
 The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
@@ -157,6 +157,6 @@ The migration and bootstrap commands use the local database owner; the server an
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [ ] Complete authentication and roles (admin account management and audit log are implemented; password reset remains)
-- [ ] Complete the dashboard (filters, risk analysis, ATT&CK mapping, Radar, and admin source status)
+- [ ] Complete the dashboard (filters and admin source status are implemented; fuller analysis, summary search, and Radar remain)
 - [ ] Add alert delivery (email, SMS, Slack)
 - [ ] Apply for Reddit API access

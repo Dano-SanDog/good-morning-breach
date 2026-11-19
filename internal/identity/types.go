@@ -65,6 +65,17 @@ type AdminAuditRecord struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
+type SourceStatus struct {
+	ID               string     `json:"id"`
+	Name             string     `json:"name"`
+	Enabled          bool       `json:"enabled"`
+	LastSuccessAt    *time.Time `json:"lastSuccessAt"`
+	LastFailureAt    *time.Time `json:"lastFailureAt"`
+	LastFailureCause *string    `json:"lastFailureCause"`
+	FailingSince     *time.Time `json:"failingSince"`
+	Warning          bool       `json:"warning"`
+}
+
 type AttackTechnique struct {
 	ID      string   `json:"id"`
 	Name    string   `json:"name"`
@@ -97,6 +108,17 @@ type Story struct {
 	AttackTechniques []AttackTechnique `json:"attackTechniques"`
 }
 
+type StoryFilter struct {
+	After    time.Time
+	Before   *time.Time
+	Search   string
+	Category string
+	Risk     string
+	Source   string
+	Attack   string
+	Offset   int
+}
+
 type Store interface {
 	CreateAdmin(context.Context, string, string) (int64, error)
 	ListAccounts(context.Context) ([]ManagedAccount, error)
@@ -104,6 +126,7 @@ type Store interface {
 	UpdateAccount(context.Context, int64, int64, *string, *bool) error
 	DeleteAccount(context.Context, int64, int64) error
 	ListAdminAudit(context.Context) ([]AdminAuditRecord, error)
+	ListSourceStatuses(context.Context) ([]SourceStatus, error)
 	AccountByEmail(context.Context, string) (Account, error)
 	RecordFailedLogin(context.Context, int64, time.Time) (bool, error)
 	CreatePartialSession(context.Context, []byte, []byte, int64, time.Time, time.Time) error
@@ -113,5 +136,5 @@ type Store interface {
 	BeginTOTPSetup(context.Context, []byte, int64, []byte, []byte, time.Time) error
 	CompleteTOTP(context.Context, []byte, []byte, int64, time.Time, bool) (Account, error)
 	DeleteSession(context.Context, []byte) error
-	ListStories(context.Context, time.Time) ([]Story, error)
+	ListStories(context.Context, StoryFilter) ([]Story, error)
 }

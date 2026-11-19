@@ -217,10 +217,69 @@ func TestAdminEndpointsRequireAnAuthenticatedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	response := httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/admin/accounts", nil))
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d; want %d", response.Code, http.StatusUnauthorized)
+	for _, path := range []string{"/api/admin/accounts", "/api/admin/sources"} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("%s status = %d; want %d", path, response.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
+func TestStoryFilterValidation(t *testing.T) {
+	router := gin.New()
+	router.GET("/stories", func(c *gin.Context) {
+		filter, err := storyFilter(c)
+		if err != nil {
+			c.Status(http.StatusBadRequest)
+			return
+		}
+		c.JSON(http.StatusOK, filter)
+	})
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{
+		{"?search=" + strings.Repeat("x", 201), http.StatusBadRequest},
+		{"?risk=Severe", http.StatusBadRequest},
+		{"?offset=-1", http.StatusBadRequest},
+		{"?search=x&search=y", http.StatusBadRequest},
+		{"?before=2026-01-02T00:00:00Z", http.StatusBadRequest},
+		{"?after=2026-01-02T00:00:00Z&before=2026-01-01T00:00:00Z", http.StatusBadRequest},
+		{"?search=%26%7C%21%3A%2A&risk=High&offset=100", http.StatusOK},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/stories"+tc.query, nil))
+		if response.Code != tc.want {
+			t.Errorf("%s: status = %d; want %d", tc.query, response.Code, tc.want)
+		}
+	}
+}
+
+func TestSourceHealthEndpointEnforcesRole(t *testing.T) {
+	for _, tc := range []struct {
+		role string
+		want int
+	}{{"user", http.StatusForbidden}, {"admin", http.StatusOK}} {
+		store := &sourceHealthIdentityStore{role: tc.role}
+		service, err := identity.NewService(store, make([]byte, 32), http.DefaultClient)
+		if err != nil {
+			t.Fatal(err)
+		}
+		router, err := newRouter(service, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/api/admin/sources", nil)
+		request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "test-session"})
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != tc.want {
+			t.Errorf("%s status = %d; want %d", tc.role, response.Code, tc.want)
+		}
+		if tc.role == "admin" && !strings.Contains(response.Body.String(), `"sources":[]`) {
+			t.Errorf("admin response = %s", response.Body.String())
+		}
 	}
 }
 
@@ -294,6 +353,19 @@ func TestCrossOriginMutationIsRejected(t *testing.T) {
 
 type unauthenticatedIdentityStore struct{}
 
+type sourceHealthIdentityStore struct {
+	unauthenticatedIdentityStore
+	role string
+}
+
+func (s *sourceHealthIdentityStore) LoadSession(context.Context, []byte, time.Time) (identity.Session, error) {
+	return identity.Session{Account: identity.Account{ID: 1, Role: s.role, Enabled: true}}, nil
+}
+
+func (*sourceHealthIdentityStore) ListSourceStatuses(context.Context) ([]identity.SourceStatus, error) {
+	return nil, nil
+}
+
 type passwordOnlyIdentityStore struct {
 	unauthenticatedIdentityStore
 	account identity.Account
@@ -327,6 +399,9 @@ func (*unauthenticatedIdentityStore) DeleteAccount(context.Context, int64, int64
 func (*unauthenticatedIdentityStore) ListAdminAudit(context.Context) ([]identity.AdminAuditRecord, error) {
 	return nil, errors.New("unexpected call")
 }
+func (*unauthenticatedIdentityStore) ListSourceStatuses(context.Context) ([]identity.SourceStatus, error) {
+	return nil, errors.New("unexpected call")
+}
 func (*unauthenticatedIdentityStore) AccountByEmail(context.Context, string) (identity.Account, error) {
 	return identity.Account{}, identity.ErrNotFound
 }
@@ -354,6 +429,6 @@ func (*unauthenticatedIdentityStore) CompleteTOTP(context.Context, []byte, []byt
 func (*unauthenticatedIdentityStore) DeleteSession(context.Context, []byte) error {
 	return errors.New("unexpected call")
 }
-func (*unauthenticatedIdentityStore) ListStories(context.Context, time.Time) ([]identity.Story, error) {
+func (*unauthenticatedIdentityStore) ListStories(context.Context, identity.StoryFilter) ([]identity.Story, error) {
 	return nil, errors.New("unexpected call")
 }

@@ -640,7 +640,7 @@ func (s *IdentityStore) DeleteSession(ctx context.Context, tokenHash []byte) err
 	return nil
 }
 
-func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]identity.Story, error) {
+func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFilter) ([]identity.Story, error) {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	rows, err := s.pool.Query(queryCtx, `SELECT
@@ -668,6 +668,19 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 		JOIN story_categories ON story_categories.story_id = stories.id
 		JOIN categories ON categories.id = story_categories.category_id
 		WHERE COALESCE(stories.published_at, stories.created_at) >= $1
+		AND ($2::timestamptz IS NULL OR COALESCE(stories.published_at, stories.created_at) < $2)
+		AND ($3 = '' OR to_tsvector('english', stories.title) @@ plainto_tsquery('english', $3))
+		AND ($4 = '' OR stories.risk = $4)
+		AND ($5 = '' OR EXISTS (SELECT 1 FROM story_categories sc
+			JOIN categories cat ON cat.id = sc.category_id
+			WHERE sc.story_id = stories.id AND lower(cat.name) = lower($5)))
+		AND ($6 = '' OR EXISTS (SELECT 1 FROM story_sources ss
+			JOIN data_sources src ON src.id = ss.source_id
+			WHERE ss.story_id = stories.id AND lower(src.name) = lower($6)))
+		AND ($7 = '' OR EXISTS (SELECT 1 FROM story_techniques st
+			JOIN attack_techniques at ON at.technique_id = st.technique_id
+			WHERE st.story_id = stories.id AND (lower(at.technique_id) = lower($7) OR lower(at.name) = lower($7)
+				OR EXISTS (SELECT 1 FROM unnest(at.tactics) tactic WHERE lower(tactic) = lower($7)))))
 		GROUP BY stories.id
 		ORDER BY CASE stories.risk
 			WHEN 'Critical' THEN 0
@@ -676,8 +689,9 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 			WHEN 'Low' THEN 3
 			ELSE 4
 		END,
-		COALESCE(stories.published_at, stories.created_at) DESC
-		LIMIT 100`, after)
+		COALESCE(stories.published_at, stories.created_at) DESC, stories.id DESC
+		LIMIT 101 OFFSET $8`, filter.After, filter.Before, filter.Search, filter.Risk,
+		filter.Category, filter.Source, filter.Attack, filter.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("query recent stories: %w", err)
 	}
@@ -716,6 +730,34 @@ func (s *IdentityStore) ListStories(ctx context.Context, after time.Time) ([]ide
 		return nil, fmt.Errorf("read recent stories: %w", err)
 	}
 	return stories, nil
+}
+
+func (s *IdentityStore) ListSourceStatuses(ctx context.Context) ([]identity.SourceStatus, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+	rows, err := s.pool.Query(queryCtx, `SELECT sources.id, sources.name, sources.enabled,
+		sources.last_success_at, sources.last_failure_at, sources.last_failure_cause,
+		(SELECT MIN(runs.finished_at) FROM collection_runs AS runs
+		 WHERE runs.source_id = sources.id AND runs.outcome = 'failure'
+		   AND (sources.last_success_at IS NULL OR runs.finished_at > sources.last_success_at))
+		FROM data_sources AS sources ORDER BY sources.name, sources.id`)
+	if err != nil {
+		return nil, fmt.Errorf("query source statuses: %w", err)
+	}
+	defer rows.Close()
+	var statuses []identity.SourceStatus
+	for rows.Next() {
+		var status identity.SourceStatus
+		if err := rows.Scan(&status.ID, &status.Name, &status.Enabled, &status.LastSuccessAt,
+			&status.LastFailureAt, &status.LastFailureCause, &status.FailingSince); err != nil {
+			return nil, fmt.Errorf("scan source status: %w", err)
+		}
+		statuses = append(statuses, status)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read source statuses: %w", err)
+	}
+	return statuses, nil
 }
 
 func scanAccount(row pgx.Row) (identity.Account, error) {

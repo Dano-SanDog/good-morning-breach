@@ -20,6 +20,26 @@ type AdminAuditRecord = {
   details: string;
   createdAt: string;
 };
+type SourceStatus = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  lastFailureCause: string | null;
+  failingSince: string | null;
+  warning: boolean;
+};
+type StoryFilters = {
+  search: string;
+  category: string;
+  risk: string;
+  source: string;
+  attack: string;
+  start: string;
+  end: string;
+};
+const emptyFilters: StoryFilters = { search: "", category: "", risk: "", source: "", attack: "", start: "", end: "" };
 type AttackTechnique = {
   id: string;
   name: string;
@@ -243,6 +263,53 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
   return records;
 }
 
+function nullableTimestamp(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && Number.isFinite(Date.parse(value)));
+}
+
+export function parseSourceStatuses(value: unknown): SourceStatus[] | null {
+  if (!isRecord(value) || !Array.isArray(value.sources)) return null;
+  const statuses: SourceStatus[] = [];
+  for (const item of value.sources) {
+    if (!isRecord(item) || typeof item.id !== "string" || typeof item.name !== "string" ||
+        typeof item.enabled !== "boolean" || !nullableTimestamp(item.lastSuccessAt) ||
+        !nullableTimestamp(item.lastFailureAt) || !nullableTimestamp(item.failingSince) ||
+        (item.lastFailureCause !== null && typeof item.lastFailureCause !== "string") ||
+        typeof item.warning !== "boolean") return null;
+    statuses.push({
+      id: item.id, name: item.name, enabled: item.enabled, lastSuccessAt: item.lastSuccessAt,
+      lastFailureAt: item.lastFailureAt, lastFailureCause: item.lastFailureCause,
+      failingSince: item.failingSince, warning: item.warning,
+    });
+  }
+  return statuses;
+}
+
+export function storyFilterQuery(filters: StoryFilters, offset: number): string {
+  const params = new URLSearchParams();
+  for (const key of ["search", "category", "risk", "source", "attack"] as const) {
+    if (filters[key].trim()) params.set(key, filters[key].trim());
+  }
+  if (filters.start || filters.end) {
+    if (!filters.start || !filters.end) throw new Error("Choose both a start and end date.");
+    const start = new Date(`${filters.start}T00:00:00`);
+    const end = new Date(`${filters.end}T00:00:00`);
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end < start) {
+      throw new Error("Choose a valid date range.");
+    }
+    end.setDate(end.getDate() + 1);
+    params.set("after", start.toISOString());
+    params.set("before", end.toISOString());
+  }
+  if (offset > 0) params.set("offset", String(offset));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function formatStatusTime(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : "Never";
+}
+
 export function ExternalStoryLink({ story }: { story: Story }) {
   const url = getSafeExternalURL(story.url);
   if (!url) {
@@ -264,6 +331,11 @@ export function App() {
   const [stories, setStories] = useState<Story[]>([]);
   const [managedAccounts, setManagedAccounts] = useState<ManagedAccount[]>([]);
   const [adminAudit, setAdminAudit] = useState<AdminAuditRecord[]>([]);
+  const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[] | null>(null);
+  const [filterDraft, setFilterDraft] = useState<StoryFilters>(emptyFilters);
+  const [appliedFilters, setAppliedFilters] = useState<StoryFilters>(emptyFilters);
+  const [storyOffset, setStoryOffset] = useState(0);
+  const [hasMoreStories, setHasMoreStories] = useState(false);
   const [totpSecret, setTotpSecret] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -274,17 +346,28 @@ export function App() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const loadStories = useCallback(async () => {
-    const response = await fetch("/api/stories", { credentials: "same-origin" });
+  const loadStories = useCallback(async (filters: StoryFilters, offset: number) => {
+    const response = await fetch(`/api/stories${storyFilterQuery(filters, offset)}`, { credentials: "same-origin" });
     if (!response.ok) {
       throw new Error(await responseError(response));
     }
     const payload: unknown = await response.json();
     const loaded = parseStories(payload);
-    if (!loaded) {
+    if (!loaded || !isRecord(payload) || typeof payload.hasMore !== "boolean") {
       throw new Error("The server returned an invalid stories response.");
     }
     setStories(loaded);
+    setHasMoreStories(payload.hasMore);
+    setStoryOffset(offset);
+    setAppliedFilters(filters);
+  }, []);
+
+  const loadSourceStatuses = useCallback(async () => {
+    const response = await fetch("/api/admin/sources", { credentials: "same-origin" });
+    if (!response.ok) throw new Error(await responseError(response));
+    const statuses = parseSourceStatuses(await response.json());
+    if (!statuses) throw new Error("The server returned invalid source health data.");
+    setSourceStatuses(statuses);
   }, []);
 
   const loadAdminData = useCallback(async () => {
@@ -335,16 +418,17 @@ export function App() {
       setView("dashboard");
       setMessage("");
       try {
-        const requests: Promise<void>[] = [loadStories()];
+        setFilterDraft(emptyFilters);
+        const requests: Promise<void>[] = [loadStories(emptyFilters, 0)];
         if (signedInUser.role === "admin") {
-          requests.push(loadAdminData());
+          requests.push(loadAdminData(), loadSourceStatuses());
         }
         await Promise.all(requests);
       } catch (error) {
         setMessage(error instanceof Error ? error.message : "Could not load dashboard data.");
       }
     },
-    [loadAdminData, loadStories],
+    [loadAdminData, loadSourceStatuses, loadStories],
   );
 
   useEffect(() => {
@@ -510,10 +594,23 @@ export function App() {
       setStories([]);
       setManagedAccounts([]);
       setAdminAudit([]);
+      setSourceStatuses(null);
       setCode("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyStoryFilters(filters: StoryFilters, offset: number) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await loadStories(filters, offset);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not load stories.");
     } finally {
       setBusy(false);
     }
@@ -679,11 +776,43 @@ export function App() {
         <div className="dashboard-heading">
           <div>
             <h1>This morning</h1>
-            <p className="muted">Recent CERT-EU and SANS ISC stories</p>
+            <p className="muted">Stories from your enabled sources</p>
           </div>
-          <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"}</span>
+          <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"} on this page</span>
         </div>
         {message && <p className="message" role="alert">{message}</p>}
+        {user?.role === "admin" && (
+          <section className="source-health" aria-labelledby="source-health-heading">
+            <h2 id="source-health-heading">Source health</h2>
+            {sourceStatuses?.filter((source) => source.warning).map((source) => (
+              <p className="source-warning" role="alert" key={source.id}>
+                <strong>Warning: {source.name}</strong> has had no successful collection since failures began{" "}
+                {source.failingSince ? `${Math.floor((Date.now() - Date.parse(source.failingSince)) / 3_600_000)} hours ago` : "at least 24 hours ago"}.
+              </p>
+            ))}
+            <details>
+              <summary>View source collection status</summary>
+              {sourceStatuses === null ? <p className="muted">Source health is not available.</p> : sourceStatuses.length === 0 ? <p className="muted">No sources available.</p> : (
+                <div className="admin-table-scroll">
+                  <table className="admin-table">
+                    <thead><tr><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Last success</th><th scope="col">Last failure</th><th scope="col">Failure cause</th></tr></thead>
+                    <tbody>
+                      {sourceStatuses.map((source) => (
+                        <tr key={source.id}>
+                          <th scope="row">{source.name}</th>
+                          <td>{source.enabled ? "Enabled" : "Disabled"}</td>
+                          <td>{formatStatusTime(source.lastSuccessAt)}</td>
+                          <td>{formatStatusTime(source.lastFailureAt)}</td>
+                          <td>{source.lastFailureCause || "None"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </details>
+          </section>
+        )}
         {user?.role === "admin" && (
           <section className="admin-panel" aria-labelledby="accounts-heading">
             <div className="dashboard-heading">
@@ -815,10 +944,42 @@ export function App() {
             )}
           </section>
         )}
+        <details className="story-filters">
+          <summary>Filter stories</summary>
+          <form onSubmit={(event) => { event.preventDefault(); void applyStoryFilters(filterDraft, 0); }}>
+            <label>Search titles<input type="search" maxLength={200} value={filterDraft.search} onChange={(event) => setFilterDraft({ ...filterDraft, search: event.target.value })} /></label>
+            <label>Category<input maxLength={200} placeholder="Exact category name" value={filterDraft.category} onChange={(event) => setFilterDraft({ ...filterDraft, category: event.target.value })} /></label>
+            <label>Risk<select value={filterDraft.risk} onChange={(event) => setFilterDraft({ ...filterDraft, risk: event.target.value })}>
+              <option value="">All risks</option>
+              {Array.from(riskValues).map((risk) => <option key={risk} value={risk}>{risk}</option>)}
+            </select></label>
+            <label>Source<input maxLength={200} placeholder="Exact source name" value={filterDraft.source} onChange={(event) => setFilterDraft({ ...filterDraft, source: event.target.value })} /></label>
+            <label>ATT&amp;CK tactic or technique<input maxLength={200} placeholder="Name or ID, e.g. T1190" value={filterDraft.attack} onChange={(event) => setFilterDraft({ ...filterDraft, attack: event.target.value })} /></label>
+            <label>From date<input type="date" value={filterDraft.start} onChange={(event) => setFilterDraft({ ...filterDraft, start: event.target.value })} /></label>
+            <label>Through date<input type="date" value={filterDraft.end} onChange={(event) => setFilterDraft({ ...filterDraft, end: event.target.value })} /></label>
+            <button type="submit" className="primary-button" disabled={busy}>Apply filters</button>
+          </form>
+        </details>
+        {Object.values(appliedFilters).some(Boolean) && (
+          <div className="active-filters" aria-label="Active filters">
+            {(["search", "category", "risk", "source", "attack"] as const).filter((key) => appliedFilters[key]).map((key) => (
+              <button type="button" className="filter-chip" key={key} disabled={busy} onClick={() => {
+                const next = { ...appliedFilters, [key]: "" };
+                setFilterDraft(next);
+                void applyStoryFilters(next, 0);
+              }}>Remove {key}: {appliedFilters[key]} ×</button>
+            ))}
+            {appliedFilters.start && <button type="button" className="filter-chip" disabled={busy} onClick={() => {
+              const next = { ...appliedFilters, start: "", end: "" };
+              setFilterDraft(next);
+              void applyStoryFilters(next, 0);
+            }}>Remove dates: {appliedFilters.start}–{appliedFilters.end} ×</button>}
+          </div>
+        )}
         {stories.length === 0 ? (
           <section className="empty-state" aria-live="polite">
-            <h2>No recent stories</h2>
-            <p>Run the collection command to check for new stories.</p>
+            <h2>No matching stories</h2>
+            <p>Change the filters or check for new stories.</p>
           </section>
         ) : (
           <ol className="story-ledger">
@@ -865,6 +1026,11 @@ export function App() {
             ))}
           </ol>
         )}
+        {(storyOffset > 0 || hasMoreStories) && <nav className="story-pagination" aria-label="Story pages">
+          <button type="button" className="table-button" disabled={busy || storyOffset === 0} onClick={() => void applyStoryFilters(appliedFilters, Math.max(0, storyOffset - 100))}>Previous</button>
+          <span>Page {Math.floor(storyOffset / 100) + 1}</span>
+          <button type="button" className="table-button" disabled={busy || !hasMoreStories} onClick={() => void applyStoryFilters(appliedFilters, storyOffset + 100)}>Next</button>
+        </nav>}
       </main>
     </div>
   );

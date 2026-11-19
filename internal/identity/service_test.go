@@ -219,6 +219,37 @@ func TestCreateAccountValidatesEmailAndRoleBeforePasswordCheck(t *testing.T) {
 	}
 }
 
+func TestSourceHealthWarningsAndAuthorization(t *testing.T) {
+	service, store, token := serviceWithAuthenticatedAccount(t, "admin")
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	atThreshold := now.Add(-24 * time.Hour)
+	recent := now.Add(-24*time.Hour + time.Second)
+	old := now.Add(-30 * time.Hour)
+	store.sourceStatuses = []SourceStatus{
+		{Name: "threshold", Enabled: true, FailingSince: &atThreshold},
+		{Name: "recent failure", Enabled: true, FailingSince: &recent},
+		{Name: "disabled", Enabled: false, FailingSince: &old},
+		{Name: "no failure", Enabled: true},
+	}
+	statuses, err := service.ListSourceStatuses(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []bool{true, false, false, false} {
+		if statuses[i].Warning != want {
+			t.Errorf("%s warning = %v; want %v", statuses[i].Name, statuses[i].Warning, want)
+		}
+	}
+	userService, _, userToken := serviceWithAuthenticatedAccount(t, "user")
+	if _, err := userService.ListSourceStatuses(context.Background(), userToken); !errors.Is(err, ErrAdminRequired) {
+		t.Fatalf("user source health error = %v", err)
+	}
+	if _, err := service.ListSourceStatuses(context.Background(), ""); !errors.Is(err, ErrSession) {
+		t.Fatalf("unauthenticated source health error = %v", err)
+	}
+}
+
 func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memoryIdentityStore, string) {
 	t.Helper()
 	store := &memoryIdentityStore{
@@ -254,6 +285,7 @@ type memoryIdentityStore struct {
 	failures        int
 	managedAccounts []ManagedAccount
 	adminAudit      []AdminAuditRecord
+	sourceStatuses  []SourceStatus
 	nextAccountID   int64
 }
 
@@ -310,6 +342,10 @@ func (s *memoryIdentityStore) DeleteAccount(_ context.Context, _, targetID int64
 
 func (s *memoryIdentityStore) ListAdminAudit(context.Context) ([]AdminAuditRecord, error) {
 	return s.adminAudit, nil
+}
+
+func (s *memoryIdentityStore) ListSourceStatuses(context.Context) ([]SourceStatus, error) {
+	return s.sourceStatuses, nil
 }
 
 func (s *memoryIdentityStore) AccountByEmail(_ context.Context, email string) (Account, error) {
@@ -432,7 +468,7 @@ func (s *memoryIdentityStore) DeleteSession(_ context.Context, tokenHash []byte)
 	return nil
 }
 
-func (s *memoryIdentityStore) ListStories(context.Context, time.Time) ([]Story, error) {
+func (s *memoryIdentityStore) ListStories(context.Context, StoryFilter) ([]Story, error) {
 	return []Story{}, nil
 }
 

@@ -423,6 +423,87 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.source-health,
+.story-filters {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #d9d7e5;
+  background: #fff;
+}
+
+.source-health h2 {
+  font-size: 20px;
+}
+
+.source-health .admin-table {
+  min-width: 700px;
+}
+
+.source-health summary,
+.story-filters summary {
+  min-height: 44px;
+  padding: 10px 0;
+  color: #2e2a8c;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.source-warning {
+  margin: 8px 0;
+  padding: 12px;
+  background: #fff1cc;
+  overflow-wrap: anywhere;
+}
+
+.story-filters form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end;
+  gap: 12px;
+}
+
+.story-filters label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.story-filters input,
+.story-filters select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #7c7898;
+  border-radius: 3px;
+  background: #fff;
+  color: #1d1a3b;
+  font: inherit;
+}
+
+.story-filters .primary-button {
+  margin: 0;
+}
+
+.active-filters,
+.story-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.filter-chip {
+  min-height: 44px;
+  padding: 6px 12px;
+  border: 1px solid #2e2a8c;
+  border-radius: 999px;
+  background: #e3e1f2;
+  color: #1d1a3b;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
 .admin-panel {
   margin: 32px 0;
   padding: 24px;
