@@ -226,20 +226,20 @@ Night indigo and first light, plus a five-step risk ramp. Every text pair passes
 
 ## Layout
 
-- **Desktop (≥1024 px):** three regions. There is a 56 px ink account bar across the top. The story ledger has a maximum width of 760 px. A 280 px right rail holds Cloudflare Radar data and, for admins only, source health. Filters sit above the ledger in a "Filter stories" disclosure, collapsed by default. Active filters always show as removable chips, so the stories stay above the fold.
-- **Mobile (<1024 px):** a single column. The same collapsed filters apply. Navigation wraps to a second row of the account bar. The Radar rail moves below the ledger. The side gutter is 16 px.
+- **Desktop (≥1024 px):** three regions. There is a 56 px ink account bar across the top. The story ledger has a maximum width of 760 px. A 280 px right rail holds, for admins only, source health. Filters sit above the ledger in a "Filter stories" disclosure, collapsed by default. Active filters always show as removable chips, so the stories stay above the fold.
+- **Mobile (<1024 px):** a single column. The same collapsed filters apply. Navigation wraps to a second row of the account bar. The side gutter is 16 px.
 - **Times:** all times show in the user's alert time zone (FR-4.6), so the dashboard and the alert agree. *(delegated decision)*
 - **Rhythm:** 8 px base with a 4 px half-step. All text is left-aligned and nothing is justified.
 - **Dashboard order:** account bar, then the "This morning" heading with a count by risk level, then filters and search, then the ledger, then the rail, then the required notices (FR-8.10, FR-8.11) in the footer.
 
 ```
 ┌ account bar: mark  Good Morning Breach        jo@…  Admin  Sign out ┐
-│ This morning, 13 Nov   ▮3 Critical ▮5 High ▮9 Medium ...  │ Radar      │
-│ [Search] [Category▾] [Risk▾] [Source▾] [Dates] [ATT&CK▾]  │ outages    │
-│ ▌ Critical  Title of story                               │ attacks    │
-│ ▌           Sources, time, categories, T-tags, summary   │ BGP        │
-│ ▎ High      ...                                          │ Source     │
-│ footer: NVD notice, MITRE notice, HIBP credit            │ health     │
+│ This morning, 13 Nov   ▮3 Critical ▮5 High ▮9 Medium ...  │            │
+│ [Search] [Category▾] [Risk▾] [Source▾] [Dates] [ATT&CK▾]  │ Source     │
+│ ▌ Critical  Title of story                               │ health     │
+│ ▌           Sources, time, categories, T-tags, summary   │            │
+│ ▎ High      ...                                          │            │
+│ footer: NVD notice, MITRE notice, HIBP credit            │            │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -271,10 +271,9 @@ All components are framework-neutral. Every interactive element has a 3 px ink f
 - **Sentiment:** plain muted text ("Tone: Negative"). It never uses colour or emoji, because tone is not risk.
 - **Tag chips:** categories, and ATT&CK tags shown as `T1190` plus the technique name and its tactic. They link to attack.mitre.org (FR-7.2). Active filter chips use the selected fill and have a remove control.
 - **Story row:** spine, risk chip, title linked to the original source, source names, publication time, categories, ATT&CK tags, a summary only where FR-8.8 permits it, and the attribution or licence line (FR-8.5, FR-8.12). Variants:
-  - *Headline-only:* for Reddit, "all rights reserved", and Zero Wire sources. It has no summary, no category, and no scores for Reddit (FR-1.17). Zero Wire shows its action label.
+  - *Headline-only:* for "all rights reserved" and headline-and-link sources. It has no summary.
   - *Related:* stories that share a CVE are grouped under a "Related: CVE-…" disclosure.
 - **Risk count bar:** five segments sized by count, each labelled with its number and word.
-- **Radar panel:** lists of outages, attack trends, and BGP events. Each one has a time and a link.
 - **Admin warning:** a warning-container banner that names the failing source and how long it has been failing (FR-8.7).
 - **Empty state:** "No new stories at or above Medium since 07:00 yesterday. Change your minimum risk in Alert settings."
 - **Alert settings form:** time, time zone, days, channels, minimum risk, and an on/off switch shown as a labelled checkbox. Phone numbers show a "Verify number" step. A saved Slack webhook shows as "Slack webhook saved" with a "Replace" action.
@@ -289,7 +288,7 @@ All components are framework-neutral. Every interactive element has a 3 px ink f
   - *Sign-in:* every failure shows one message: "Email, password, or code is incorrect." (FR-6.8). Password reset always says "If that address has an account, we sent a link."
   - *All errors:* never show stack traces, internal IDs, source credentials, saved webhook addresses (NFR-3.3), or whether another user exists.
   - *Lockout:* a locked account shows the same single sign-in error, so lockout never confirms that an account exists. *(delegated decision)*
-- **User-supplied and collected content:** all story text, source names, category names, and Reddit titles render as plain text, never as markup (NFR-3.4). Links to original items show their destination domain in visible text beside the title. Reddit titles are shown unchanged (FR-1.17). Long unbroken strings wrap so they cannot push the layout off screen.
+- **User-supplied and collected content:** all story text, source names, and category names render as plain text, never as markup (NFR-3.4). Links to original items show their destination domain in visible text beside the title. Long unbroken strings wrap so they cannot push the layout off screen.
 
 ## Do's and Don'ts
 
@@ -300,7 +299,6 @@ All components are framework-neutral. Every interactive element has a 3 px ink f
 - Don't use cards, shadows, or gradients for stories. Use the ledger.
 - Don't use all-caps labels, middle-dot metadata strings, or arrow-suffixed links.
 - Don't use dawn amber for text or controls.
-- Don't show a summary, category, or score on a Reddit item.
 
 ## Open Questions
 
