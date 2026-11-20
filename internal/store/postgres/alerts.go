@@ -56,7 +56,7 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	rows, err := s.pool.Query(queryCtx, `SELECT
-		stories.title, stories.canonical_url, stories.published_at,
+		stories.id, stories.title, stories.canonical_url, stories.published_at,
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
 		stories.risk, stories.sentiment,
@@ -71,7 +71,9 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 			JOIN attack_techniques ON attack_techniques.technique_id = story_techniques.technique_id
 			WHERE story_techniques.story_id = stories.id),
 			'[]'::jsonb
-		)
+		),
+		COALESCE((SELECT array_agg(story_cves.cve_id ORDER BY story_cves.cve_id)
+			FROM story_cves WHERE story_cves.story_id = stories.id), '{}'::text[])
 		FROM stories
 		JOIN story_sources ON story_sources.story_id = stories.id
 		JOIN data_sources ON data_sources.id = story_sources.source_id
@@ -92,8 +94,8 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 	for rows.Next() {
 		var story alerting.Story
 		var techniquesJSON []byte
-		if err := rows.Scan(&story.Title, &story.URL, &story.PublishedAt, &story.Sources, &story.Attributions,
-			&story.Risk, &story.Sentiment, &story.Categories, &techniquesJSON); err != nil {
+		if err := rows.Scan(&story.ID, &story.Title, &story.URL, &story.PublishedAt, &story.Sources, &story.Attributions,
+			&story.Risk, &story.Sentiment, &story.Categories, &techniquesJSON, &story.CVEs); err != nil {
 			return nil, fmt.Errorf("scan alert story: %w", err)
 		}
 		var techniques []struct {
@@ -117,7 +119,62 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read alert stories: %w", err)
 	}
+	if err := s.attachRelated(queryCtx, stories); err != nil {
+		return nil, err
+	}
 	return stories, nil
+}
+
+const maxRelatedPerAlertStory = 3
+
+// attachRelated adds headline-and-link references to other stories that name
+// the same CVE (FR-1.13).
+func (s *AlertStore) attachRelated(ctx context.Context, stories []alerting.Story) error {
+	byID := make(map[int64]*alerting.Story)
+	ids := make([]int64, 0, len(stories))
+	for i := range stories {
+		if len(stories[i].CVEs) > 0 {
+			byID[stories[i].ID] = &stories[i]
+			ids = append(ids, stories[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT story_id, title, canonical_url, cve_id FROM (
+			SELECT pairs.story_id, other.title, other.canonical_url, pairs.cve_id,
+				row_number() OVER (PARTITION BY pairs.story_id
+					ORDER BY COALESCE(other.published_at, other.created_at) DESC, other.id DESC) AS rank
+			FROM (
+				SELECT DISTINCT ON (mine.story_id, theirs.story_id)
+					mine.story_id, theirs.story_id AS other_id, mine.cve_id
+				FROM story_cves AS mine
+				JOIN story_cves AS theirs ON theirs.cve_id = mine.cve_id AND theirs.story_id <> mine.story_id
+				WHERE mine.story_id = ANY($1)
+				ORDER BY mine.story_id, theirs.story_id, mine.cve_id
+			) AS pairs
+			JOIN stories AS other ON other.id = pairs.other_id
+		) AS ranked
+		WHERE rank <= $2
+		ORDER BY story_id, rank`, ids, maxRelatedPerAlertStory)
+	if err != nil {
+		return fmt.Errorf("query related alert stories: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var storyID int64
+		var related alerting.RelatedStory
+		if err := rows.Scan(&storyID, &related.Title, &related.URL, &related.CVE); err != nil {
+			return fmt.Errorf("scan related alert story: %w", err)
+		}
+		if story := byID[storyID]; story != nil {
+			story.Related = append(story.Related, related)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read related alert stories: %w", err)
+	}
+	return nil
 }
 
 func (s *AlertStore) RecordSuccess(ctx context.Context, accountID int64, slot, until, attemptedAt time.Time, stories int) error {

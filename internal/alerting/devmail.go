@@ -57,3 +57,18 @@ func (m *FileMailer) SendText(_ context.Context, to, subject, text string) error
 	}
 	return err
 }
+
+// Send writes a complete multipart message (.eml, mode 0600) so alert output
+// can be inspected in development.
+func (m *FileMailer) Send(_ context.Context, to string, message Message) error {
+	recipient, err := parseAddress(to)
+	if err != nil || strings.ContainsAny(message.Subject, "\r\n") {
+		return errors.New("invalid message header")
+	}
+	body, err := buildMessage("alerts@localhost", recipient, message, m.now())
+	if err != nil {
+		return err
+	}
+	name := fmt.Sprintf("%s-%s.eml", m.now().UTC().Format("20060102T150405Z"), rand.Text()[:8])
+	return os.WriteFile(filepath.Join(m.dir, name), body, 0o600)
+}
