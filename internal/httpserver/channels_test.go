@@ -21,15 +21,26 @@ type fakeContactStore struct {
 func (s *fakeContactStore) ReserveMessage(context.Context, int64, alerting.Quota, time.Time) (bool, error) {
 	return true, nil
 }
+func (s *fakeContactStore) DisableSMS(context.Context, int64) error { return nil }
 func (s *fakeContactStore) GetContacts(_ context.Context, id int64) (alerting.ContactRecord, error) {
 	s.account = id
 	return s.record, nil
 }
-func (s *fakeContactStore) SaveChannels(_ context.Context, id int64, _, _ bool) error {
+func (s *fakeContactStore) SaveChannels(_ context.Context, id int64, _, _, _ bool) error {
 	s.account = id
 	return nil
 }
 func (s *fakeContactStore) SaveSlackWebhook(context.Context, int64, []byte) error { return nil }
+func (s *fakeContactStore) StartPhoneVerification(context.Context, int64, string, []byte, time.Time, time.Time) error {
+	return nil
+}
+func (s *fakeContactStore) GetVerification(context.Context, int64) (alerting.Verification, bool, error) {
+	return alerting.Verification{}, false, nil
+}
+func (s *fakeContactStore) RecordFailedCode(context.Context, int64) error { return nil }
+func (s *fakeContactStore) ConfirmPhone(context.Context, int64, string, time.Time) error {
+	return nil
+}
 
 type fakeBox struct{}
 
@@ -37,6 +48,7 @@ func (fakeBox) Open(string, int64, []byte) ([]byte, error) { return nil, nil }
 func (fakeBox) Seal(_ string, _ int64, p []byte) ([]byte, error) {
 	return p, nil
 }
+func (fakeBox) Digest(string, int64, string) []byte { return []byte("d") }
 
 func TestAlertChannelEndpoints(t *testing.T) {
 	identityStore := &sourceHealthIdentityStore{role: "user"}
@@ -48,7 +60,7 @@ func TestAlertChannelEndpoints(t *testing.T) {
 		EmailEnabled: true, SlackWebhookSealed: []byte("secret-hook"),
 	}}
 	slack := alerting.NewSlackChannel(http.DefaultClient, fakeBox{})
-	contacts, err := alerting.NewContactService(store, fakeBox{}, slack)
+	contacts, err := alerting.NewContactService(store, fakeBox{}, slack, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +84,7 @@ func TestAlertChannelEndpoints(t *testing.T) {
 	if r := do(http.MethodGet, "/api/alert-channels", "", false, false); r.Code != http.StatusUnauthorized {
 		t.Errorf("unauthenticated view = %d", r.Code)
 	}
-	if r := do(http.MethodPut, "/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false}`, false, true); r.Code != http.StatusForbidden {
+	if r := do(http.MethodPut, "/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false,"smsEnabled":false}`, false, true); r.Code != http.StatusForbidden {
 		t.Errorf("missing CSRF = %d", r.Code)
 	}
 	view := do(http.MethodGet, "/api/alert-channels", "", false, true)
@@ -84,10 +96,13 @@ func TestAlertChannelEndpoints(t *testing.T) {
 		path, body string
 		want       int
 	}{
-		{"/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false,"accountId":2}`, http.StatusBadRequest},
+		{"/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false,"smsEnabled":false,"accountId":2}`, http.StatusBadRequest},
 		{"/api/alert-channels", `{"emailEnabled":true}`, http.StatusBadRequest},
-		{"/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false}`, http.StatusNoContent},
+		{"/api/alert-channels", `{"emailEnabled":true,"slackEnabled":false,"smsEnabled":false}`, http.StatusNoContent},
 		{"/api/alert-channels/slack", `{"webhook":"https://evil.example/services/x"}`, http.StatusBadRequest},
+		{"/api/alert-channels/phone", `{"phone":"5551234"}`, http.StatusServiceUnavailable},
+		{"/api/alert-channels/phone", `{"phone":"+15551234567"}`, http.StatusServiceUnavailable},
+		{"/api/alert-channels/phone/verify", `{"code":"1234567"}`, http.StatusBadRequest},
 	} {
 		method := http.MethodPost
 		if tc.path == "/api/alert-channels" {

@@ -45,18 +45,34 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 	now := time.Now()
 
 	record, err := store.GetContacts(ctx, account)
-	if err != nil || !record.EmailEnabled || record.SlackEnabled {
+	if err != nil || !record.EmailEnabled || record.SlackEnabled || record.SMSEnabled {
 		t.Fatalf("defaults: %+v %v", record, err)
 	}
-	if err := store.SaveChannels(ctx, account, true, true); err == nil {
+	if err := store.SaveChannels(ctx, account, true, true, false); err == nil {
 		t.Fatal("Slack enabled without a webhook was stored")
 	}
 	if err := store.SaveSlackWebhook(ctx, account, []byte("sealed")); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.StartPhoneVerification(ctx, account, "+15551234567", []byte("h"), now.Add(10*time.Minute), now); err != nil {
+		t.Fatal(err)
+	}
 	record, _ = store.GetContacts(ctx, account)
-	if !record.SlackEnabled {
-		t.Fatalf("after webhook: %+v", record)
+	if !record.SlackEnabled || record.PendingPhone != "+15551234567" || record.PhoneVerified {
+		t.Fatalf("after webhook and code: %+v", record)
+	}
+	if err := store.RecordFailedCode(ctx, account); err != nil {
+		t.Fatal(err)
+	}
+	v, found, _ := store.GetVerification(ctx, account)
+	if !found || v.FailedAttempts != 1 {
+		t.Fatalf("verification: %+v %v", v, found)
+	}
+	if err := store.ConfirmPhone(ctx, account, "+15551234567", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, _ := store.GetVerification(ctx, account); found {
+		t.Fatal("verification kept after confirmation")
 	}
 
 	recipients, err := store.ListRecipients(ctx)
@@ -69,7 +85,8 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 			got = &recipients[i]
 		}
 	}
-	if got == nil || !got.Contacts.SlackEnabled || string(got.Contacts.SlackWebhookSealed) != "sealed" {
+	if got == nil || !got.Contacts.SMSEnabled || !got.Contacts.PhoneVerified || got.Contacts.Phone != "+15551234567" ||
+		string(got.Contacts.SlackWebhookSealed) != "sealed" {
 		t.Fatalf("recipient: %+v", got)
 	}
 
@@ -77,17 +94,25 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 	if err := store.RecordFailure(ctx, account, "slack", slot, now, "Slack returned HTTP 500"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RecordSuccess(ctx, account, "email", slot, now, now, 2); err != nil {
+	if err := store.RecordSuccess(ctx, account, "sms", slot, now, now, 2); err != nil {
 		t.Fatal(err)
 	}
 	recipients, _ = store.ListRecipients(ctx)
 	for _, r := range recipients {
-		if r.AccountID == account && (r.States["slack"].RetryAttempts != 1 || r.States["email"].LastSentSlotAt == nil) {
+		if r.AccountID == account && (r.States["slack"].RetryAttempts != 1 || r.States["sms"].LastSentSlotAt == nil || r.States["email"].LastSentSlotAt != nil) {
 			t.Fatalf("states: %+v", r.States)
 		}
 	}
 
-	quota := alerting.Quota{Kind: "slack_test", PerAccount: 3, Window: time.Hour}
+	if err := store.DisableSMS(ctx, account); err != nil {
+		t.Fatal(err)
+	}
+	record, _ = store.GetContacts(ctx, account)
+	if record.SMSEnabled || !record.PhoneVerified {
+		t.Fatalf("after opt-out: %+v", record)
+	}
+
+	quota := alerting.Quota{Kind: "sms_code", PerAccount: 3, Window: time.Hour}
 	for i := 0; i < 3; i++ {
 		if ok, err := store.ReserveMessage(ctx, account, quota, now); !ok || err != nil {
 			t.Fatalf("reservation %d: %v %v", i, ok, err)
@@ -95,6 +120,9 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 	}
 	if ok, _ := store.ReserveMessage(ctx, account, quota, now); ok {
 		t.Fatal("per-account limit not enforced")
+	}
+	if ok, _ := store.ReserveMessage(ctx, account, alerting.Quota{Kind: "sms_alert", GlobalDaily: 3}, now); ok {
+		t.Fatal("daily cap not enforced")
 	}
 	if ok, _ := store.ReserveMessage(ctx, account, quota, now.Add(2*time.Hour)); !ok {
 		t.Fatal("limit did not reset after the window")

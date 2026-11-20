@@ -39,6 +39,7 @@ type State struct {
 const (
 	ChannelEmail = "email"
 	ChannelSlack = "slack"
+	ChannelSMS   = "sms"
 )
 
 // Contacts holds the per-account channel choices and the decrypted contact data
@@ -46,7 +47,10 @@ const (
 type Contacts struct {
 	EmailEnabled       bool
 	SlackEnabled       bool
+	SMSEnabled         bool
 	SlackWebhookSealed []byte
+	Phone              string
+	PhoneVerified      bool
 }
 
 type Recipient struct {
@@ -257,7 +261,7 @@ func (s *Service) deliver(ctx context.Context, channel Channel, recipient Recipi
 }
 
 // DeliveryError carries a failure cause that is safe to store and show: it never
-// contains a webhook address, credential, or response body.
+// contains a webhook address, credential, phone number, or response body.
 type DeliveryError struct {
 	Cause string
 	Err   error

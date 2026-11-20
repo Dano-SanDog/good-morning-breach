@@ -290,16 +290,21 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
 }
 
 export type ChannelView = {
-  emailEnabled: boolean; slackEnabled: boolean; slackWebhookSaved: boolean;
+  emailEnabled: boolean; slackEnabled: boolean; smsEnabled: boolean;
+  slackWebhookSaved: boolean; smsAvailable: boolean;
+  phoneMasked: string; phoneVerified: boolean; pendingPhoneMasked: string;
 };
 
 export function parseChannelView(value: unknown): ChannelView | null {
   if (!isRecord(value)) return null;
-  const flags = ["emailEnabled", "slackEnabled", "slackWebhookSaved"] as const;
+  const flags = ["emailEnabled", "slackEnabled", "smsEnabled", "slackWebhookSaved", "smsAvailable", "phoneVerified"] as const;
   for (const flag of flags) if (typeof value[flag] !== "boolean") return null;
+  if (typeof value.phoneMasked !== "string" || typeof value.pendingPhoneMasked !== "string") return null;
   return {
     emailEnabled: value.emailEnabled as boolean, slackEnabled: value.slackEnabled as boolean,
-    slackWebhookSaved: value.slackWebhookSaved as boolean,
+    smsEnabled: value.smsEnabled as boolean, slackWebhookSaved: value.slackWebhookSaved as boolean,
+    smsAvailable: value.smsAvailable as boolean, phoneMasked: value.phoneMasked,
+    phoneVerified: value.phoneVerified as boolean, pendingPhoneMasked: value.pendingPhoneMasked,
   };
 }
 
@@ -390,6 +395,8 @@ export function App() {
   const [channels, setChannels] = useState<ChannelView | null>(null);
   const [webhookInput, setWebhookInput] = useState("");
   const [replacingWebhook, setReplacingWebhook] = useState(false);
+  const [phoneInput, setPhoneInput] = useState("");
+  const [codeInput, setCodeInput] = useState("");
   const [channelNotice, setChannelNotice] = useState("");
   const [channelError, setChannelError] = useState("");
   const [channelBusy, setChannelBusy] = useState("");
@@ -645,7 +652,7 @@ export function App() {
       setAlertSettings(null);
       setAlertSaved(false);
       setChannels(null);
-      setWebhookInput("");
+      setWebhookInput(""); setPhoneInput(""); setCodeInput("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
@@ -674,12 +681,12 @@ export function App() {
     return response;
   }
 
-  function saveChannelFlags(next: Partial<Pick<ChannelView, "emailEnabled" | "slackEnabled">>) {
+  function saveChannelFlags(next: Partial<Pick<ChannelView, "emailEnabled" | "slackEnabled" | "smsEnabled">>) {
     if (!channels) return;
     const merged = { ...channels, ...next };
     void channelAction("Saving…", async () => {
       await postChannel("/api/alert-channels", "PUT", {
-        emailEnabled: merged.emailEnabled, slackEnabled: merged.slackEnabled,
+        emailEnabled: merged.emailEnabled, slackEnabled: merged.slackEnabled, smsEnabled: merged.smsEnabled,
       });
       return "Delivery channels saved.";
     });
@@ -696,6 +703,26 @@ export function App() {
       return isRecord(result) && result.testFailed === true
         ? "Slack webhook saved, but the test message failed. Check the webhook and try again."
         : "Slack webhook saved. A test message was sent.";
+    });
+  }
+
+  function handleSendCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const phone = phoneInput;
+    void channelAction("Sending code…", async () => {
+      await postChannel("/api/alert-channels/phone", "POST", { phone });
+      setPhoneInput("");
+      return "We sent a 6-digit code. It expires in 10 minutes.";
+    });
+  }
+
+  function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const code = codeInput;
+    void channelAction("Verifying…", async () => {
+      await postChannel("/api/alert-channels/phone/verify", "POST", { code });
+      setCodeInput("");
+      return "Phone number verified. Text message alerts are on.";
     });
   }
 
@@ -966,6 +993,11 @@ export function App() {
                 disabled={channelBusy !== "" || !channels.slackWebhookSaved}
                 onChange={(event) => saveChannelFlags({ slackEnabled: event.target.checked })} /> Slack</label>
               {!channels.slackWebhookSaved && <p className="muted">Save a Slack webhook below to turn on Slack.</p>}
+              <label className="alert-toggle"><input type="checkbox" checked={channels.smsEnabled}
+                disabled={channelBusy !== "" || !channels.phoneVerified || !channels.smsAvailable}
+                onChange={(event) => saveChannelFlags({ smsEnabled: event.target.checked })} /> Text message</label>
+              {!channels.smsAvailable && <p className="muted">Text messages are not set up on this server.</p>}
+              {channels.smsAvailable && !channels.phoneVerified && <p className="muted">Verify a phone number below to turn on text messages.</p>}
 
               {channels.slackWebhookSaved && !replacingWebhook ? (
                 <p>Slack webhook saved. <button type="button" className="secondary-button" onClick={() => setReplacingWebhook(true)}>Replace</button></p>
@@ -979,6 +1011,28 @@ export function App() {
                 </form>
               )}
 
+              {channels.smsAvailable && (
+                <>
+                  {channels.phoneVerified && <p>Verified number: <span className="identifier">{channels.phoneMasked}</span></p>}
+                  <form onSubmit={handleSendCode}>
+                    <label>Phone number (with country code, such as +15551234567)
+                      <input type="tel" autoComplete="tel" required maxLength={16} value={phoneInput}
+                        onChange={(event) => setPhoneInput(event.target.value)} />
+                    </label>
+                    <button type="submit" className="secondary-button" disabled={channelBusy !== ""}>{channelBusy === "Sending code…" ? "Sending code…" : "Verify number"}</button>
+                  </form>
+                  {channels.pendingPhoneMasked && (
+                    <form onSubmit={handleVerifyCode}>
+                      <label>Code sent to <span className="identifier">{channels.pendingPhoneMasked}</span>
+                        <input inputMode="numeric" autoComplete="one-time-code" required pattern="[0-9]{6}" maxLength={6} value={codeInput}
+                          onChange={(event) => setCodeInput(event.target.value)} />
+                      </label>
+                      <button type="submit" className="primary-button" disabled={channelBusy !== ""}>{channelBusy === "Verifying…" ? "Verifying…" : "Confirm code"}</button>
+                    </form>
+                  )}
+                  <p className="muted">Reply STOP to a text message to opt out. Standard message rates may apply.</p>
+                </>
+              )}
               {channelNotice && <p role="status">{channelNotice}</p>}
               {channelError && <p className="message" role="alert">Error: {channelError}</p>}
             </section>
