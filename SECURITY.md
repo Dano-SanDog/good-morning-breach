@@ -244,8 +244,8 @@ All retrieved 2026-11-13.
 - **Status:** ACTIVE
 - **Rule:** Every output path (API story responses, email, Slack, SMS) MUST get the displayable fields of a story from the single Source registry function. No other code path MAY read stored excerpt text for output.
 - **Enforcement:** Source registry (DR-4).
-- **Evidence:** FR-8.8, FR-8.9, FR-1.17, FR-1.20, FR-1.21; ARCHITECTURE.md DR-4. This is a project decision, not a public-source control.
-- **Verification:** For a "headline and link only" source, the API, email, and Slack outputs contain no excerpt. For a Reddit item, they contain no category or scores.
+- **Evidence:** FR-8.8, FR-8.9, FR-1.21; ARCHITECTURE.md DR-4. This is a project decision, not a public-source control.
+- **Verification:** For a "headline and link only" source, the API, email, and Slack outputs contain no excerpt.
 
 **SC-024 — Untrusted STIX data**
 - **Status:** ACTIVE
@@ -577,9 +577,8 @@ All retrieved 2026-11-13.
 - **Rule:**
   - Contact data MUST be read only by the Alerting and Identity (reset) paths.
   - Retention MUST delete stories after 365 days and delivery records after 90 days.
-  - Reddit removals MUST be applied within 48 hours.
 - **Enforcement:** Retention job; Collector; Identity.
-- **Evidence:** NFR-3.2, FR-10.1, FR-10.2, FR-1.18, FR-9.5. This is a project decision.
+- **Evidence:** NFR-3.2, FR-10.1, FR-10.2, FR-9.5. This is a project decision.
 - **Verification:** After the retention job runs, seeded records older than each limit are gone and newer ones remain.
 
 **SC-075 — Process and file permissions**

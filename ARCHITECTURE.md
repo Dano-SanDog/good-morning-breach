@@ -74,7 +74,6 @@ The HTTP API and hourly collection scheduler run in one Go process against one l
 | Collector (job) | Fetches the seeded CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News RSS and JSON sources | Normalizes and de-duplicates stories; records failures; respects each source's poll interval | Collection results | FR-1, FR-8.5 to FR-8.7 | PARTIAL |
 | Analyzer (job) | Applies deterministic headline keyword rules and pinned ATT&CK technique-name/alias phrase matching | Assigns baseline categories, scores, and exact phrase tags to collected headlines; structured feed data, permitted article text, semantic ATT&CK mapping, summaries, and CVE links remain unimplemented | Category, sentiment, risk, and technique assignments | FR-2.1 to FR-2.4, FR-3, FR-7.1, FR-7.2 | PARTIAL |
 | Story store | Ingested stories, source associations, baseline analysis, and ATT&CK tags; filtered, paginated story query | Canonical-link de-duplication, source attribution, risk-first ordering, and versioned analysis backfill | Stories and analysis results | FR-1.12, FR-2.1 to FR-2.4, FR-3, FR-5.2 to FR-5.5, FR-7.1, FR-7.2, FR-10.1 | PARTIAL |
-| Radar | Cloudflare Radar outages, attacks, and BGP events | FR-1.19, FR-5.6 | Radar snapshots | FR-1.2, FR-1.19 | PLANNED |
 | Alerting (job) | Per-user preferences are stored; `internal/alerting` runs a one-minute scheduler, selects stories collected since the last alert, renders HTML and plain-text email, and delivers with retries; SMS and Slack remain planned | Validates time, IANA time zone, days, and risk; preferences are owned by the authenticated account and do not send alerts | Alert settings; delivery records planned | FR-4, FR-10.2 | PARTIAL |
 | Channel adapters | Email (SMTP over implicit TLS or mandatory STARTTLS, configured by `GB_SMTP_*`) implemented; SMS and Slack planned | None | Alert state and delivery records (migration 012) | FR-4.2 to FR-4.4 | PARTIAL |
 | Scheduler | Checks enabled-source collection at startup and hourly while the server is running; optional macOS LaunchAgent runs at login and hourly | Respects persisted per-source poll intervals; PostgreSQL advisory lock prevents overlapping collection runs | None | FR-1.8, FR-1.9 | PARTIAL |
@@ -84,7 +83,7 @@ The HTTP API and hourly collection scheduler run in one Go process against one l
 
 1. **Collect (current):** server scheduler (startup + hourly), macOS LaunchAgent (login + hourly), or manual `cmd/collect` → Collector → CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News RSS and JSON (HTTPS) → Collector validates and normalizes → Story store. A PostgreSQL advisory lock serializes runs; persisted 24-hour, 30-minute, and one-hour source intervals prevent unnecessary fetches. Additional sources remain future work.
 2. **Analyze (current baseline):** the Collector applies deterministic keyword rules and pinned ATT&CK technique-name/alias phrase matching to collected headlines, then persists categories, risk, sentiment, and matched technique tags. Server startup backfills unanalysed stories in bounded batches. Structured feed data, permitted article text, semantic ATT&CK mapping, summaries, and CVE links remain future work.
-3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Radar, Source registry, or admin audit store → JSON → React renders it as text.
+3. **Read:** browser → HTTP API (session check) → Identity (role and ownership) → Story store, Source registry, or admin audit store → JSON → React renders it as text.
 4. **Alert:** Scheduler → Alerting selects stories for the user → renders per channel, applying content rights → channel adapter → provider. Each attempt goes to delivery records.
 5. **Administer:** browser → HTTP API → Identity (admin check) → Source registry or Identity → Audit log.
 
@@ -96,14 +95,14 @@ The HTTP API and hourly collection scheduler run in one Go process against one l
 - **TB-4 Process ↔ PostgreSQL and secrets on disk.** PostgreSQL listens on localhost only. `cmd/collect` and `cmd/server` use the restricted `gb_app` role; `cmd/migrate` and `cmd/bootstrap` use the local database owner. The server and bootstrap command access the application data key. Secrets at rest are owned by `SECURITY.md`.
 - **TB-5 Operator ↔ installation.** The first admin is created at install time (FR-9.7) through a local setup step, not through the web.
 
-**Analysis method (CONFIRMED, AQ-3).** The Analyzer runs local rules only, and no collected content leaves the machine. The current partial implementation applies deterministic keyword rules and exact multiword technique-name/alias matching to story headlines. It loads the compressed Enterprise STIX v20.1 file embedded in the binary, verifies both the compressed asset and official source bundle SHA-256 values, and parses the bundle into typed structs. Technique identifiers are validated and display URLs are generated by the server; bundle-provided URLs are ignored. This is a conservative title-only baseline, not a semantic claim that a story describes a technique. It does not inspect article bodies or structured feed metadata, and it does not map CVE links. The planned full analysis combines keyword and pattern matching on titles and permitted text, structured feed fields (CVSS, CISA KEV membership, EPSS, CVE IDs, vendor advisory severity), and names and aliases in the MITRE ATT&CK bundle. The Analyzer generates no free-text summaries. Where FR-8.8 permits "system summary" or "verbatim excerpt", the "short summary" shown (FR-4.12, FR-5.2) is a truncated verbatim excerpt. Where only "headline and link" is permitted, no summary is shown. This satisfies FR-8.9 by construction. The exact full rules remain TO BE DECIDED in later steps.
+**Analysis method (CONFIRMED, AQ-3).** The Analyzer runs local rules only, and no collected content leaves the machine. The current partial implementation applies deterministic keyword rules and exact multiword technique-name/alias matching to story headlines. It loads the compressed Enterprise STIX v20.1 file embedded in the binary, verifies both the compressed asset and official source bundle SHA-256 values, and parses the bundle into typed structs. Technique identifiers are validated and display URLs are generated by the server; bundle-provided URLs are ignored. This is a conservative title-only baseline, not a semantic claim that a story describes a technique. It does not inspect article bodies or structured feed metadata, and it does not map CVE links. The planned full analysis combines keyword and pattern matching on titles and permitted text, structured feed fields (CVSS, CISA KEV membership, CVE IDs, vendor advisory severity), and names and aliases in the MITRE ATT&CK bundle. The Analyzer generates no free-text summaries. Where FR-8.8 permits "system summary" or "verbatim excerpt", the "short summary" shown (FR-4.12, FR-5.2) is a truncated verbatim excerpt. Where only "headline and link" is permitted, no summary is shown. This satisfies FR-8.9 by construction. The exact full rules remain TO BE DECIDED in later steps.
 
 ## Dependency Rules
 
-- **DR-1** Dependencies point one way: Web client → HTTP API → domain components (Identity, Source registry, Story store, Analyzer, Alerting, Radar, Audit log) → storage and channel adapters. Nothing points back, and there are no cycles.
+- **DR-1** Dependencies point one way: Web client → HTTP API → domain components (Identity, Source registry, Story store, Analyzer, Alerting, Audit log) → storage and channel adapters. Nothing points back, and there are no cycles.
 - **DR-2** Business rules live only in domain components. They never live in Gin handlers, React code, the SQL layer, or channel or source adapters.
 - **DR-3** Each component writes only the data it owns (see the table). Other components use its interface to read or change that data.
-- **DR-4** Every content-rights decision (FR-8.8, FR-8.9, FR-1.17, FR-1.20, FR-1.21) goes through one Source registry function, used by the dashboard API and every alert channel.
+- **DR-4** Every content-rights decision (FR-8.8, FR-8.9, FR-1.21) goes through one Source registry function, used by the dashboard API and every alert channel.
 - **DR-5** Vendor code (Gin, pgx, feed parser, SMS and SMTP providers, Slack) is wrapped in adapters, so domain code never imports it directly.
 - **DR-6** The client receives only data the server already authorized and filtered. It never receives secrets, webhook URLs, or hashes (NFR-3.3).
 - **DR-7** Jobs (Collector, Analyzer, Alerting, Retention) call domain components. They do not call the HTTP API.
@@ -123,13 +122,12 @@ flowchart LR
     AN[Analyzer]
     CO[Collector]
     AL[Alerting]
-    RA[Radar]
     AU[Audit log]
     SC[Scheduler]
     DB[(PostgreSQL)]
   end
   subgraph External["External (untrusted)"]
-    SRC[News sources, Reddit,<br/>Cloudflare, MITRE]
+    SRC[News sources,<br/>MITRE]
     PRV[SMTP, Twilio, Slack,<br/>HIBP range API]
   end
   UI -- TB-1 HTTPS --> API
@@ -166,4 +164,4 @@ flowchart LR
 
 No architecture choices block implementation. In the interview, the owner answered AQ-1 to AQ-4. The owner then told the author to answer the rest. AQ-5, AQ-6, and AQ-7 were decided on that instruction and are marked *(delegated decision)* in the Stack table. The owner's SMTP provider is still UNKNOWN and will be selected when configuring email delivery. The scaffold's `go.mod`/`go.sum` and `package.json`/`package-lock.json` are committed; review resolved dependency trees and rerun security and license checks before adding proposed packages.
 
-Migration 016 adds the `nvd_json`, `hibp_breaches_json`, and `hacker_news_json` formats. NVD requests ask for critical CVEs published in the last 72 hours; HIBP keeps breaches added in the last 30 days and skips fabricated and spam-list entries; Hacker News fetches the top 100 stories with a fixed 16-worker pool and keeps only security-keyword titles with an external URL. No dependencies were added. Skipped: ACSC, Cloudflare Radar and Zero Wire, FIRST EPSS, abuse.ch, CISA Vulnrichment, and Reddit (reasons in README.md).
+Migration 016 adds the `nvd_json`, `hibp_breaches_json`, and `hacker_news_json` formats. NVD requests ask for critical CVEs published in the last 72 hours; HIBP keeps breaches added in the last 30 days and skips fabricated and spam-list entries; Hacker News fetches the top 100 stories with a fixed 16-worker pool and keeps only security-keyword titles with an external URL. No dependencies were added. Skipped: ACSC (reasons in README.md). Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch are out of scope by owner decision.

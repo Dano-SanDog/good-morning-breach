@@ -17,16 +17,14 @@ A private, non-commercial morning cybersecurity news feed. Good Morning Breach c
 
 Source licenses were researched for this use case. See [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
 
-The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Not yet added: Australia ACSC (feed unreachable and unverified), Cloudflare Radar (needs an API token), Cloudflare Zero Wire (bot-challenged, no API or license), FIRST EPSS and CISA Vulnrichment (enrichment data, not news), abuse.ch feeds (indicator feeds; three need an Auth-Key), and Reddit (awaiting API approval).
+The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Not yet added: Australia ACSC (feed unreachable and unverified). Out of scope by owner decision: Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar).
 
 | Group | Sources at launch |
 | --- | --- |
 | Government and CERT | remaining CISA advisory feeds, NVD API, FBI IC3, CERT-EU, CERT-FR, Australia ASD's ACSC |
-| Vulnerability and threat data | FIRST EPSS, CISA Vulnrichment, abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar), Have I Been Pwned breach catalog |
+| Vulnerability and threat data | Have I Been Pwned breach catalog |
 | News and research | SANS Internet Storm Center, EFF Deeplinks, Hacker News (titles and links only) |
-| Internet signals | Cloudflare Radar (outages, attack trends, BGP events), Cloudflare Zero Wire (headline, link, CVE IDs, action label only) |
 | Frameworks | MITRE ATT&CK |
-| Reddit | r/netsec and r/cybersecurity, **only after Reddit approves API access**; titles and links shown without change, never summarized or scored |
 
 **Not used:** LevelBlue/AlienVault OTX, GreyNoise free tier, OpenPhish free feed, Spamhaus DROP, Shadowserver. Their terms forbid display to other persons.
 
@@ -56,7 +54,6 @@ The planned alert behavior is:
 ### Dashboard
 - Shows the last 24 hours by default, sorted by risk.
 - Filters by exact category, risk, source, and ATT&CK tactic or technique name or ID, plus local date range and title keyword search. Results are paginated in groups of 100; summaries are not yet stored or searchable.
-- Cloudflare Radar data is not yet implemented.
 - Admins see each source's last success, failure and cause, with a warning when an enabled source's first failure since its last success was at least 24 hours ago. An inactive collector alone does not count as a failure.
 
 ### Story Categorization
@@ -162,6 +159,5 @@ The migration and bootstrap commands use the local database owner; the server an
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
-- [ ] Complete the dashboard (filters and admin source status are implemented; fuller analysis, summary search, and Radar remain)
+- [ ] Complete the dashboard (filters and admin source status are implemented; fuller analysis, and summary search remain)
 - [ ] Add alert delivery (email preferences are saved; scheduling, email, SMS, and Slack delivery remain)
-- [ ] Apply for Reddit API access
