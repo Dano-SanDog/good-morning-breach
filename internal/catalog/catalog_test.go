@@ -100,6 +100,7 @@ func TestCreateSourceValidation(t *testing.T) {
 		"bad format":              func(s *Source) { s.Format = "xml" },
 		"bad policy":              func(s *Source) { s.ContentPolicy = "everything" },
 		"fast poll":               func(s *Source) { s.PollIntervalSeconds = 60 },
+		"slow poll":               func(s *Source) { s.PollIntervalSeconds = 3601 },
 		"control chars":           func(s *Source) { s.Name = "Bad\x00Name" },
 		"empty slug":              func(s *Source) { s.Name = "!!!" },
 		"reddit trailing dot":     func(s *Source) { s.Address = "https://www.reddit.com./r/netsec/.rss" },

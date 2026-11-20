@@ -336,7 +336,7 @@ export function CatalogAdmin({ onChanged }: { onChanged?: () => void }) {
           <label>Content the system may show<select value={draft.contentPolicy} onChange={(event) => setDraft({ ...draft, contentPolicy: event.target.value })}>
             {contentPolicies.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
-          <label>Poll interval in hours (1 to 168)<input type="number" min={1} max={168} step={1} required value={draft.pollIntervalHours} onChange={(event) => setDraft({ ...draft, pollIntervalHours: event.target.value })} /></label>
+          <label>Poll interval in hours (1; collection is at least hourly)<input type="number" min={1} max={1} step={1} required value={draft.pollIntervalHours} onChange={(event) => setDraft({ ...draft, pollIntervalHours: event.target.value })} /></label>
           <label className="checkbox-label"><input type="checkbox" checked={draft.requireCompleteTitle} onChange={(event) => setDraft({ ...draft, requireCompleteTitle: event.target.checked })} /> Skip items with a truncated title</label>
           <label className="checkbox-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enabled</label>
           <div className="dialog-actions">

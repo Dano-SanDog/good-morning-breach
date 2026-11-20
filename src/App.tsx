@@ -808,6 +808,25 @@ export function App() {
     }
   }
 
+  async function handleResetTOTP(account: ManagedAccount) {
+    if (!window.confirm(`Reset the authenticator for ${account.email}? Their sessions end and they must enrol a new authenticator at next sign-in.`)) {
+      return;
+    }
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON(`/api/admin/accounts/${account.id}/reset-totp`, "POST");
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      await loadAdminData();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not reset the authenticator.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (view === "loading") {
     return <main className="centered-shell"><p>Loading Good Morning Breach…</p></main>;
   }
@@ -1143,6 +1162,15 @@ export function App() {
                             onClick={() => void handleUpdateAccount(account, { enabled: !account.enabled })}
                           >
                             {account.enabled ? "Disable" : "Enable"}
+                          </button>
+                          <button
+                            type="button"
+                            className="table-button"
+                            disabled={busy || isCurrentAccount || !account.totpEnrolled}
+                            title={isCurrentAccount ? "You cannot reset your own authenticator" : undefined}
+                            onClick={() => void handleResetTOTP(account)}
+                          >
+                            Reset authenticator
                           </button>
                           <button
                             type="button"

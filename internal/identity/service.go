@@ -165,6 +165,22 @@ func (s *Service) DeleteAccount(ctx context.Context, token string, targetID int6
 	return s.store.DeleteAccount(ctx, admin.AccountID, targetID)
 }
 
+// ResetAccountTOTP is the only recovery path for a lost authenticator (SC-057).
+// An administrator cannot reset their own enrolment through the web.
+func (s *Service) ResetAccountTOTP(ctx context.Context, token string, targetID int64) error {
+	admin, err := s.requireAdmin(ctx, token)
+	if err != nil {
+		return err
+	}
+	if targetID < 1 {
+		return ErrInvalidAccountUpdate
+	}
+	if targetID == admin.AccountID {
+		return ErrSelfManagement
+	}
+	return s.store.ResetAccountTOTP(ctx, admin.AccountID, targetID)
+}
+
 func (s *Service) ListAdminAudit(ctx context.Context, token string) ([]AdminAuditRecord, error) {
 	if _, err := s.requireAdmin(ctx, token); err != nil {
 		return nil, err

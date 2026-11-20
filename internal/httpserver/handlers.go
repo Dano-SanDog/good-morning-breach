@@ -43,6 +43,7 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.POST("/api/admin/accounts", requireCSRF(), api.createAccount)
 	router.PATCH("/api/admin/accounts/:id", requireCSRF(), api.updateAccount)
 	router.DELETE("/api/admin/accounts/:id", requireCSRF(), api.deleteAccount)
+	router.POST("/api/admin/accounts/:id/reset-totp", requireCSRF(), api.resetAccountTOTP)
 	router.GET("/api/admin/audit", api.adminAudit)
 	router.GET("/api/admin/sources", api.adminSources)
 
@@ -471,6 +472,28 @@ func (h *apiHandlers) deleteAccount(c *gin.Context) {
 	}
 	token, _ := c.Cookie(sessionCookieName)
 	if err := h.identity.DeleteAccount(c.Request.Context(), token, targetID); err != nil {
+		if writeAdminError(c, err) {
+			return
+		}
+		writeInternalError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *apiHandlers) resetAccountTOTP(c *gin.Context) {
+	targetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || targetID < 1 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID."})
+		return
+	}
+	var request struct{}
+	if err := decodeStrictJSON(c, &request); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	if err := h.identity.ResetAccountTOTP(c.Request.Context(), token, targetID); err != nil {
 		if writeAdminError(c, err) {
 			return
 		}

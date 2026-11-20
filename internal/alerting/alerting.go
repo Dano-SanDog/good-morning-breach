@@ -16,7 +16,6 @@ const (
 	catchUpWindow      = 2 * time.Hour
 	firstAlertLookback = 24 * time.Hour
 	sendTimeout        = 60 * time.Second
-	deliveryRetention  = 90 * 24 * time.Hour
 )
 
 var riskOrder = []string{"Critical", "High", "Medium", "Low", "Informational"}
@@ -76,7 +75,6 @@ type Store interface {
 	StoriesForAlert(ctx context.Context, risks []string, since, until time.Time, limit int) ([]Story, error)
 	RecordSuccess(ctx context.Context, accountID int64, slot, until, attemptedAt time.Time, stories int) error
 	RecordFailure(ctx context.Context, accountID int64, slot, attemptedAt time.Time, cause string) error
-	DeleteDeliveriesBefore(context.Context, time.Time) error
 }
 
 type Sender interface {
@@ -160,9 +158,6 @@ func (s *Service) RunOnce(ctx context.Context, now time.Time) error {
 			continue
 		}
 		s.deliver(ctx, recipient, slot, now)
-	}
-	if err := s.store.DeleteDeliveriesBefore(ctx, now.Add(-deliveryRetention)); err != nil {
-		return fmt.Errorf("delete expired delivery records: %w", err)
 	}
 	return nil
 }

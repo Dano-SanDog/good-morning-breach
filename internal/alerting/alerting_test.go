@@ -109,7 +109,6 @@ func (f *fakeStore) RecordFailure(context.Context, int64, time.Time, time.Time, 
 	f.failures++
 	return nil
 }
-func (f *fakeStore) DeleteDeliveriesBefore(context.Context, time.Time) error { return nil }
 
 type fakeSender struct {
 	sent []string

@@ -199,8 +199,17 @@ func TestAdminAccountManagementRequiresAdminAndProtectsCurrentAccount(t *testing
 	if err := adminService.DeleteAccount(context.Background(), adminToken, 1); !errors.Is(err, ErrSelfManagement) {
 		t.Fatalf("self-deletion error = %v; want ErrSelfManagement", err)
 	}
+	if err := adminService.ResetAccountTOTP(context.Background(), adminToken, 1); !errors.Is(err, ErrSelfManagement) {
+		t.Fatalf("self TOTP reset error = %v; want ErrSelfManagement", err)
+	}
+	if err := adminService.ResetAccountTOTP(context.Background(), adminToken, 2); err != nil {
+		t.Fatalf("TOTP reset error = %v", err)
+	}
 
 	userService, _, userToken := serviceWithAuthenticatedAccount(t, "user")
+	if err := userService.ResetAccountTOTP(context.Background(), userToken, 2); !errors.Is(err, ErrAdminRequired) {
+		t.Fatalf("non-admin TOTP reset error = %v; want ErrAdminRequired", err)
+	}
 	if _, err := userService.ListAccounts(context.Background(), userToken); !errors.Is(err, ErrAdminRequired) {
 		t.Fatalf("non-admin account listing error = %v; want ErrAdminRequired", err)
 	}
@@ -320,6 +329,7 @@ func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memo
 }
 
 type memoryIdentityStore struct {
+	resetTarget     int64
 	account         Account
 	sessions        map[string]Session
 	failures        int
@@ -369,6 +379,11 @@ func (s *memoryIdentityStore) UpdateAccount(
 		}
 	}
 	return ErrNotFound
+}
+
+func (s *memoryIdentityStore) ResetAccountTOTP(_ context.Context, _, targetID int64) error {
+	s.resetTarget = targetID
+	return nil
 }
 
 func (s *memoryIdentityStore) DeleteAccount(_ context.Context, _, targetID int64) error {
