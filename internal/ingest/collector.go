@@ -140,7 +140,7 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 		if failure != "" {
 			return fail(failure)
 		}
-		items, skipped = normalizeItems(feed)
+		items, skipped = normalizeItems(feed, source.CompleteTitles)
 		received = len(feed.Items)
 	}
 	result.ItemsReceived = received
@@ -214,7 +214,7 @@ func (c *Collector) fetchBody(ctx context.Context, source Source, accept, mediaS
 	return body, ""
 }
 
-func normalizeItems(feed *gofeed.Feed) ([]Item, int) {
+func normalizeItems(feed *gofeed.Feed, completeTitles bool) ([]Item, int) {
 	items := make([]Item, 0, len(feed.Items))
 	seen := make(map[string]struct{}, len(feed.Items))
 	skipped := 0
@@ -224,7 +224,11 @@ func normalizeItems(feed *gofeed.Feed) ([]Item, int) {
 			skipped++
 			continue
 		}
-		title := normalizeTitle(feedItem.Title)
+		title, truncated := normalizeTitleChecked(feedItem.Title)
+		if completeTitles && truncated {
+			skipped++
+			continue
+		}
 		link := normalizeLink(feedItem.Link)
 		if title == "" || link == "" {
 			skipped++

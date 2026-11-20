@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"time"
 )
+
+const kevCatalogURL = "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
 
 const kevLookback = 30 * 24 * time.Hour
 
@@ -18,7 +21,11 @@ var (
 
 func decodeStrict(body []byte, target any) bool {
 	decoder := json.NewDecoder(bytes.NewReader(body))
-	return decoder.Decode(target) == nil
+	if decoder.Decode(target) != nil {
+		return false
+	}
+	_, err := decoder.Token()
+	return err == io.EOF
 }
 
 func parseCISAKEV(body []byte, now time.Time) (items []Item, received, skipped int, ok bool) {
@@ -31,7 +38,7 @@ func parseCISAKEV(body []byte, now time.Time) (items []Item, received, skipped i
 			DateAdded         string `json:"dateAdded"`
 		} `json:"vulnerabilities"`
 	}
-	if !decodeStrict(body, &catalog) || catalog.Vulnerabilities == nil {
+	if !decodeStrict(body, &catalog) || len(catalog.Vulnerabilities) == 0 {
 		return nil, 0, 0, false
 	}
 	cutoff := now.UTC().Add(-kevLookback)
@@ -47,7 +54,7 @@ func parseCISAKEV(body []byte, now time.Time) (items []Item, received, skipped i
 		}
 		received++
 		title := normalizeTitle(fmt.Sprintf("%s: %s %s - %s", entry.CVEID, entry.VendorProject, entry.Product, entry.VulnerabilityName))
-		link := normalizeLink("https://nvd.nist.gov/vuln/detail/" + entry.CVEID)
+		link := normalizeLink(kevCatalogURL + "?search_api_fulltext=" + entry.CVEID)
 		if _, dup := seen[link]; dup || title == "" || link == "" {
 			skipped++
 			continue
@@ -65,7 +72,7 @@ func parseGitHubAdvisories(body []byte) (items []Item, received, skipped int, ok
 		Summary     string `json:"summary"`
 		PublishedAt string `json:"published_at"`
 	}
-	if !decodeStrict(body, &advisories) || advisories == nil {
+	if !decodeStrict(body, &advisories) || len(advisories) == 0 {
 		return nil, 0, 0, false
 	}
 	received = len(advisories)

@@ -21,7 +21,7 @@ INSERT INTO data_sources (
         'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json',
         'CC0 1.0 Universal',
         'https://www.cisa.gov/sites/default/files/licenses/kev/license.txt',
-        'The KEV catalog is dedicated to the public domain under CC0 1.0. Do not use CISA or DHS logos or seals or imply endorsement. This collector stores only a headline built from the CVE ID, vendor, product, and vulnerability name, and a link to the NVD entry. Only entries added in the last 30 days are collected.',
+        'The KEV catalog is dedicated to the public domain under CC0 1.0. Do not use CISA or DHS logos or seals or imply endorsement. This collector stores only a headline built from the CVE ID, vendor, product, and vulnerability name, and a link to the KEV catalog entry search for that CVE. Only entries added in the last 30 days are collected.',
         'Source: CISA Known Exploited Vulnerabilities catalog (CC0 1.0). No endorsement by CISA or DHS is implied. License: https://www.cisa.gov/sites/default/files/licenses/kev/license.txt',
         'headline_link',
         3600,

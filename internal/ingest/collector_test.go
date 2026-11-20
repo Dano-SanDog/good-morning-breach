@@ -294,7 +294,7 @@ func TestParseCISAKEVKeepsRecentEntriesWithNVDLinks(t *testing.T) {
 		t.Fatalf("items=%d received=%d skipped=%d ok=%v", len(items), received, skipped, ok)
 	}
 	if items[0].Title != "CVE-2024-10441: Synology DSM - Escaping flaw" ||
-		items[0].CanonicalURL != "https://nvd.nist.gov/vuln/detail/CVE-2024-10441" ||
+		items[0].CanonicalURL != "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=CVE-2024-10441" ||
 		items[0].PublishedAt == nil {
 		t.Fatalf("unexpected item %+v", items[0])
 	}
@@ -343,5 +343,116 @@ func TestRunCollectsJSONSourceAndRejectsInvalidJSON(t *testing.T) {
 	collector, _ = NewCollector(client, store)
 	if _, err := collector.Run(context.Background()); err == nil || len(store.failures) != 1 {
 		t.Fatalf("expected a recorded failure, err=%v", err)
+	}
+}
+
+func TestDecodeStrictAndEmptyDocuments(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	for name, body := range map[string]string{
+		"kev trailing":   `{"vulnerabilities":[{"cveID":"CVE-2024-0001","dateAdded":"2026-11-18"}]} {}`,
+		"kev empty list": `{"vulnerabilities":[]}`,
+	} {
+		if _, _, _, ok := parseCISAKEV([]byte(body), now); ok {
+			t.Errorf("%s: expected invalid", name)
+		}
+	}
+	for name, body := range map[string]string{
+		"ghsa trailing": `[{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"x"}] junk`,
+		"ghsa empty":    `[]`,
+	} {
+		if _, _, _, ok := parseGitHubAdvisories([]byte(body)); ok {
+			t.Errorf("%s: expected invalid", name)
+		}
+	}
+}
+
+func TestParseCISAKEVCutoffAndUnparseableDates(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	body := `{"vulnerabilities":[
+		{"cveID":"CVE-2026-0001","vendorProject":"A","product":"A","vulnerabilityName":"A","dateAdded":"2026-10-20"},
+		{"cveID":"CVE-2026-0002","vendorProject":"B","product":"B","vulnerabilityName":"B","dateAdded":"2026-10-19"},
+		{"cveID":"CVE-2026-0003","vendorProject":"C","product":"C","vulnerabilityName":"C","dateAdded":"yesterday"}]}`
+	items, received, skipped, ok := parseCISAKEV([]byte(body), now)
+	if !ok || len(items) != 1 || items[0].Title[:13] != "CVE-2026-0001" || received != 1 || skipped != 1 {
+		t.Fatalf("items=%+v received=%d skipped=%d ok=%v", items, received, skipped, ok)
+	}
+}
+
+func TestContentTypeMustMatchSourceFormat(t *testing.T) {
+	run := func(source Source, contentType string) (*memoryStore, error) {
+		store := &memoryStore{sources: []Source{source}}
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			response := feedResponse(`<rss version="2.0"><channel></channel></rss>`)
+			response.Header.Set("Content-Type", contentType)
+			return response, nil
+		})}
+		collector, _ := NewCollector(client, store)
+		_, err := collector.Run(context.Background())
+		return store, err
+	}
+	jsonSource := testSource("kev")
+	jsonSource.Format = FormatCISAKEV
+	if store, err := run(jsonSource, "application/xml"); err == nil || store.failures[0] != "feed returned an unsupported content type" {
+		t.Fatalf("JSON source accepted XML: %v %v", err, store.failures)
+	}
+	if store, err := run(testSource("rss"), "application/json"); err == nil || store.failures[0] != "feed returned an unsupported content type" {
+		t.Fatalf("RSS source accepted JSON: %v %v", err, store.failures)
+	}
+}
+
+func TestJSONSourceRejectsOversizedResponse(t *testing.T) {
+	source := testSource("ghsa")
+	source.Format = FormatGitHubAdvisories
+	store := &memoryStore{sources: []Source{source}}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse("[" + strings.Repeat(" ", maxFeedBytes+1) + "]"), nil
+	})}
+	collector, _ := NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err == nil || store.failures[0] != "feed response exceeds the 10 MiB limit" {
+		t.Fatalf("err=%v failures=%v", err, store.failures)
+	}
+}
+
+func TestSourceValidationChecksFormat(t *testing.T) {
+	source := testSource("x")
+	source.Format = ""
+	if source.Validate() == nil {
+		t.Fatal("expected empty format to be rejected")
+	}
+	source.Format = "csv"
+	if source.Validate() == nil {
+		t.Fatal("expected unknown format to be rejected")
+	}
+	for _, format := range []Format{FormatRSS, FormatCISAKEV, FormatGitHubAdvisories} {
+		source.Format = format
+		if err := source.Validate(); err != nil {
+			t.Errorf("%s: %v", format, err)
+		}
+	}
+}
+
+func TestCompleteTitlesSkipsOverlongItems(t *testing.T) {
+	long := strings.Repeat("a", maxTitleRunes+1)
+	body := `<rss version="2.0"><channel>` +
+		`<item><title>` + long + `</title><link>https://example.test/long</link></item>` +
+		`<item><title>Short</title><link>https://example.test/short</link></item></channel></rss>`
+	for _, complete := range []bool{true, false} {
+		source := testSource("cccs")
+		source.CompleteTitles = complete
+		store := &memoryStore{sources: []Source{source}}
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return feedResponse(body), nil
+		})}
+		collector, _ := NewCollector(client, store)
+		if _, err := collector.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		want := 2
+		if complete {
+			want = 1
+		}
+		if len(store.completed) != want {
+			t.Errorf("complete=%v saved %d items, want %d", complete, len(store.completed), want)
+		}
 	}
 }

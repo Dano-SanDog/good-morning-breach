@@ -12,6 +12,12 @@ const maxTitleRunes = 300
 const maxLinkBytes = 2048
 
 func normalizeTitle(input string) string {
+	title, _ := normalizeTitleChecked(input)
+	return title
+}
+
+// normalizeTitleChecked also reports whether the title was cut at the length cap.
+func normalizeTitleChecked(input string) (string, bool) {
 	tokenizer := html.NewTokenizer(strings.NewReader(html.UnescapeString(input)))
 	var output strings.Builder
 	runeCount := 0
@@ -21,7 +27,7 @@ func normalizeTitle(input string) string {
 		tokenType := tokenizer.Next()
 		switch tokenType {
 		case html.ErrorToken:
-			return strings.Join(strings.Fields(output.String()), " ")
+			return strings.Join(strings.Fields(output.String()), " "), false
 		case html.StartTagToken, html.SelfClosingTagToken, html.EndTagToken:
 			name, _ := tokenizer.TagName()
 			if strings.EqualFold(string(name), "script") || strings.EqualFold(string(name), "style") {
@@ -32,11 +38,14 @@ func normalizeTitle(input string) string {
 				continue
 			}
 			for _, char := range string(tokenizer.Text()) {
-				if runeCount >= maxTitleRunes {
-					return strings.Join(strings.Fields(output.String()), " ")
-				}
 				if unicode.IsControl(char) {
 					continue
+				}
+				if runeCount >= maxTitleRunes {
+					if unicode.IsSpace(char) {
+						continue
+					}
+					return strings.Join(strings.Fields(output.String()), " "), true
 				}
 				if unicode.IsSpace(char) {
 					char = ' '

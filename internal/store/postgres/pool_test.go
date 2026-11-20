@@ -154,3 +154,41 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 		t.Fatalf("special search: got %d stories, error %v", len(stories), err)
 	}
 }
+
+func TestListEnabledSourcesScansFormatAndTitleRule(t *testing.T) {
+	connection := os.Getenv("GB_TEST_DATABASE_URL")
+	if connection == "" {
+		t.Skip("set GB_TEST_DATABASE_URL to run PostgreSQL integration test")
+	}
+	config, err := pgxpool.ParseConfig(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxConns = 1
+	ctx := context.Background()
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for _, statement := range []string{
+		`CREATE TEMP TABLE data_sources (id text, name text, address text, license_name text, license_url text,
+			permitted_use text, attribution text, content_policy text, poll_interval_seconds bigint,
+			enabled boolean, last_success_at timestamptz, format text NOT NULL DEFAULT 'rss',
+			require_complete_title boolean NOT NULL DEFAULT false)`,
+		`INSERT INTO data_sources (id, name, address, license_name, license_url, permitted_use, attribution,
+			content_policy, poll_interval_seconds, enabled, format, require_complete_title) VALUES
+			('a', 'A', 'https://a.test', 'l', 'https://l.test', 'p', 'n', 'headline_link', 3600, true, 'cisa_kev_json', true),
+			('b', 'B', 'https://b.test', 'l', 'https://l.test', 'p', 'n', 'headline_link', 3600, true, 'rss', false)`,
+	} {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sources, err := (&Store{pool: pool}).ListEnabledSources(ctx)
+	if err != nil || len(sources) != 2 ||
+		sources[0].Format != "cisa_kev_json" || !sources[0].CompleteTitles ||
+		sources[1].Format != "rss" || sources[1].CompleteTitles {
+		t.Fatalf("sources = %+v, error %v", sources, err)
+	}
+}

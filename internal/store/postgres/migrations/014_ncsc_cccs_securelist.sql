@@ -1,3 +1,6 @@
+ALTER TABLE data_sources
+    ADD COLUMN require_complete_title boolean NOT NULL DEFAULT false;
+
 INSERT INTO data_sources (
     id,
     name,
@@ -8,7 +11,8 @@ INSERT INTO data_sources (
     attribution,
     content_policy,
     poll_interval_seconds,
-    enabled
+    enabled,
+    require_complete_title
 ) VALUES
     (
         'uk-ncsc',
@@ -20,7 +24,8 @@ INSERT INTO data_sources (
         'Contains public sector information licensed under the Open Government Licence v3.0. Source: UK NCSC. No endorsement by the NCSC is implied. Terms: https://www.ncsc.gov.uk/section/about-this-website/terms-and-conditions',
         'headline_link',
         3600,
-        true
+        true,
+        false
     ),
     (
         'cccs-alerts-advisories',
@@ -28,10 +33,11 @@ INSERT INTO data_sources (
         'https://www.cyber.gc.ca/api/cccs/rss/v1/get?feed=alerts_advisories&lang=en',
         'Canada.ca Terms and Conditions (non-commercial reproduction)',
         'https://www.canada.ca/en/transparency/terms.html',
-        'Non-commercial reproduction only, with the complete title and a link to the original. Do not use Cyber Centre names or graphics to suggest endorsement. This collector stores only headlines and links.',
+        'Non-commercial reproduction only, with the complete title and a link to the original. Titles must stay complete, so over-long titles are skipped. Do not use Cyber Centre names or graphics to suggest endorsement. This collector stores only headlines and links.',
         'Source: Canadian Centre for Cyber Security. This is a copy of the version available at the linked original. No endorsement is implied. Terms: https://www.canada.ca/en/transparency/terms.html',
         'headline_link',
         3600,
+        true,
         true
     ),
     (
@@ -40,10 +46,11 @@ INSERT INTO data_sources (
         'https://www.cyber.gc.ca/api/cccs/rss/v1/get?feed=news_events_guidance&lang=en',
         'Canada.ca Terms and Conditions (non-commercial reproduction)',
         'https://www.canada.ca/en/transparency/terms.html',
-        'Non-commercial reproduction only, with the complete title and a link to the original. Do not use Cyber Centre names or graphics to suggest endorsement. This collector stores only headlines and links.',
+        'Non-commercial reproduction only, with the complete title and a link to the original. Titles must stay complete, so over-long titles are skipped. Do not use Cyber Centre names or graphics to suggest endorsement. This collector stores only headlines and links.',
         'Source: Canadian Centre for Cyber Security. This is a copy of the version available at the linked original. No endorsement is implied. Terms: https://www.canada.ca/en/transparency/terms.html',
         'headline_link',
         3600,
+        true,
         true
     ),
     (
@@ -52,10 +59,11 @@ INSERT INTO data_sources (
         'https://securelist.com/feed/',
         'Securelist Terms of Use (republication without modification, with credit)',
         'https://securelist.com/terms-of-use/',
-        'Republication only without modification, with an active link and a Securelist blog credit. No summaries or rewrites. This collector stores only headlines and links.',
+        'Republication only without modification, with an active link and a Securelist blog credit. No summaries, rewrites, or shortened titles (over-long titles are skipped). This collector stores only headlines and links.',
         'Securelist blog. Source: Kaspersky Securelist. Terms: https://securelist.com/terms-of-use/',
         'headline_link',
         3600,
+        true,
         true
     )
 ON CONFLICT (id) DO NOTHING;

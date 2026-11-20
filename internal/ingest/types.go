@@ -26,17 +26,19 @@ const (
 )
 
 type Source struct {
-	Format        Format
-	ID            string
-	Name          string
-	Address       string
-	LicenseName   string
-	LicenseURL    string
-	PermittedUse  string
-	Attribution   string
-	ContentPolicy ContentPolicy
-	PollInterval  time.Duration
-	LastSuccessAt *time.Time
+	Format Format
+	// CompleteTitles skips items whose title would be shortened, for sources whose terms forbid changes.
+	CompleteTitles bool
+	ID             string
+	Name           string
+	Address        string
+	LicenseName    string
+	LicenseURL     string
+	PermittedUse   string
+	Attribution    string
+	ContentPolicy  ContentPolicy
+	PollInterval   time.Duration
+	LastSuccessAt  *time.Time
 }
 
 func (s Source) Validate() error {
