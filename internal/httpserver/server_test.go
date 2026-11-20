@@ -226,6 +226,32 @@ func TestAdminEndpointsRequireAnAuthenticatedSession(t *testing.T) {
 	}
 }
 
+func TestResetTOTPRouteRequiresCSRFAndSession(t *testing.T) {
+	service, err := identity.NewService(&unauthenticatedIdentityStore{}, make([]byte, 32), http.DefaultClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := newRouter(service, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		csrf string
+		want int
+	}{{"", http.StatusForbidden}, {"1", http.StatusUnauthorized}} {
+		request := httptest.NewRequest(http.MethodPost, "/api/admin/accounts/2/reset-totp", strings.NewReader("{}"))
+		request.Header.Set("Content-Type", "application/json")
+		if tc.csrf != "" {
+			request.Header.Set("X-GMB-CSRF", tc.csrf)
+		}
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		if response.Code != tc.want {
+			t.Fatalf("csrf=%q status = %d; want %d", tc.csrf, response.Code, tc.want)
+		}
+	}
+}
+
 func TestStoryFilterValidation(t *testing.T) {
 	router := gin.New()
 	router.GET("/stories", func(c *gin.Context) {
@@ -443,6 +469,10 @@ func (*unauthenticatedIdentityStore) CreateAccount(context.Context, int64, strin
 func (*unauthenticatedIdentityStore) UpdateAccount(context.Context, int64, int64, *string, *bool) error {
 	return errors.New("unexpected call")
 }
+func (*unauthenticatedIdentityStore) ResetAccountTOTP(context.Context, int64, int64) error {
+	return nil
+}
+
 func (*unauthenticatedIdentityStore) DeleteAccount(context.Context, int64, int64) error {
 	return errors.New("unexpected call")
 }

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
+	"github.com/Dano-SanDog/good-morning-breach/internal/retention"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -113,7 +114,11 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 	if err := source.Validate(); err != nil {
 		return fail("source license record or configuration is invalid")
 	}
-	if source.LastSuccessAt != nil && time.Since(*source.LastSuccessAt) < source.PollInterval {
+	lastAttempt := source.LastAttemptAt
+	if lastAttempt == nil {
+		lastAttempt = source.LastSuccessAt
+	}
+	if lastAttempt != nil && time.Since(*lastAttempt) < source.PollInterval {
 		result.Skipped = true
 		return result, nil
 	}
@@ -158,6 +163,10 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 		items, skipped = normalizeItems(feed, source.CompleteTitles)
 		received = len(feed.Items)
 	}
+	// Items older than the retention window would be re-created with a fresh
+	// collection time after retention deletes them, so they are not stored.
+	items, expired := dropExpired(items, time.Now())
+	skipped += expired
 	result.ItemsReceived = received
 	result.ItemsSkipped = skipped
 	run := Run{
@@ -172,6 +181,18 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 	}
 	result.ItemsSaved = saved
 	return result, nil
+}
+
+func dropExpired(items []Item, now time.Time) ([]Item, int) {
+	cutoff := now.Add(-retention.StoryRetention)
+	kept := items[:0:0]
+	for _, item := range items {
+		if item.PublishedAt != nil && item.PublishedAt.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept, len(items) - len(kept)
 }
 
 func (c *Collector) fetchFeed(ctx context.Context, source Source) (*gofeed.Feed, string) {

@@ -184,7 +184,7 @@ func TestListEnabledSourcesScansFormatAndTitleRule(t *testing.T) {
 	for _, statement := range []string{
 		`CREATE TEMP TABLE data_sources (id text, name text, address text, license_name text, license_url text,
 			permitted_use text, attribution text, content_policy text, poll_interval_seconds bigint,
-			enabled boolean, last_success_at timestamptz, format text NOT NULL DEFAULT 'rss',
+			enabled boolean, last_success_at timestamptz, last_failure_at timestamptz, format text NOT NULL DEFAULT 'rss',
 			require_complete_title boolean NOT NULL DEFAULT false)`,
 		`INSERT INTO data_sources (id, name, address, license_name, license_url, permitted_use, attribution,
 			content_policy, poll_interval_seconds, enabled, format, require_complete_title) VALUES

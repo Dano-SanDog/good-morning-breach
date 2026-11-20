@@ -201,6 +201,39 @@ func TestRunRejectsOversizedFeedAndRecordsCause(t *testing.T) {
 	}
 }
 
+func TestRunSkipsSourceAttemptedWithinItsPollInterval(t *testing.T) {
+	lastSuccess := time.Now().Add(-48 * time.Hour)
+	lastAttempt := time.Now().Add(-10 * time.Minute)
+	source := testSource("failing")
+	source.LastSuccessAt = &lastSuccess
+	source.LastAttemptAt = &lastAttempt
+	store := &memoryStore{sources: []Source{source}}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("unexpected request")
+	})}
+	collector, err := NewCollector(client, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	results, err := collector.Run(context.Background())
+	if err != nil || len(results) != 1 || !results[0].Skipped {
+		t.Fatalf("results = %+v, err = %v", results, err)
+	}
+}
+
+func TestDropExpiredSkipsItemsOlderThanRetention(t *testing.T) {
+	now := time.Now()
+	old, recent := now.Add(-366*24*time.Hour), now.Add(-time.Hour)
+	items, dropped := dropExpired([]Item{
+		{CanonicalURL: "https://e.test/old", PublishedAt: &old},
+		{CanonicalURL: "https://e.test/recent", PublishedAt: &recent},
+		{CanonicalURL: "https://e.test/undated"},
+	}, now)
+	if dropped != 1 || len(items) != 2 || items[0].CanonicalURL != "https://e.test/recent" {
+		t.Fatalf("items = %+v, dropped = %d", items, dropped)
+	}
+}
+
 func TestRunSkipsSourceUntilItsPollInterval(t *testing.T) {
 	lastSuccess := time.Now().Add(-time.Hour)
 	source := testSource("recent")

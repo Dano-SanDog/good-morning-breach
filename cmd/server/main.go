@@ -19,13 +19,14 @@ import (
 	"github.com/Dano-SanDog/good-morning-breach/internal/httpserver"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
+	"github.com/Dano-SanDog/good-morning-breach/internal/retention"
 	"github.com/Dano-SanDog/good-morning-breach/internal/secrets"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
 )
 
 const (
 	defaultDatabaseURL      = "host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable"
-	collectionCheckInterval = time.Hour
+	collectionCheckInterval = 10 * time.Minute
 	alertCheckInterval      = time.Minute
 	serverShutdownTimeout   = 10 * time.Second
 )
@@ -141,6 +142,18 @@ func run() error {
 		}
 	}()
 
+	retentionService, err := retention.NewService(postgres.NewRetentionStore(pool))
+	if err != nil {
+		return fmt.Errorf("configure retention: %w", err)
+	}
+	retentionDone := make(chan struct{})
+	go func() {
+		defer close(retentionDone)
+		if err := retention.RunPeriodically(runCtx, retentionService, retention.CheckInterval); err != nil {
+			slog.Error("retention scheduler stopped", "event", "retention_scheduler", "outcome", "failure", "error", err)
+		}
+	}()
+
 	alertsDone := make(chan struct{})
 	if sender != nil {
 		alertService, err := alerting.NewService(postgres.NewAlertStore(pool), sender)
@@ -177,6 +190,7 @@ func run() error {
 			stop()
 			<-collectionDone
 			<-alertsDone
+			<-retentionDone
 			return fmt.Errorf("HTTPS server stopped: %w", err)
 		}
 		stop()
@@ -190,6 +204,7 @@ func run() error {
 	stop()
 	<-collectionDone
 	<-alertsDone
+	<-retentionDone
 	if shutdownErr != nil {
 		return fmt.Errorf("shut down HTTPS server: %w", shutdownErr)
 	}

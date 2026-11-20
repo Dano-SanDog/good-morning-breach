@@ -147,6 +147,7 @@ type Store interface {
 	CreateAccount(context.Context, int64, string, string, string) (ManagedAccount, error)
 	UpdateAccount(context.Context, int64, int64, *string, *bool) error
 	DeleteAccount(context.Context, int64, int64) error
+	ResetAccountTOTP(context.Context, int64, int64) error
 	ListAdminAudit(context.Context) ([]AdminAuditRecord, error)
 	ListSourceStatuses(context.Context) ([]SourceStatus, error)
 	GetAlertSettings(context.Context, int64) (AlertSettings, error)

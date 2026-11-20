@@ -230,13 +230,4 @@ func (s *AlertStore) RecordFailure(ctx context.Context, accountID int64, slot, a
 	return tx.Commit(queryCtx)
 }
 
-func (s *AlertStore) DeleteDeliveriesBefore(ctx context.Context, cutoff time.Time) error {
-	queryCtx, cancel := databaseContext(ctx)
-	defer cancel()
-	if _, err := s.pool.Exec(queryCtx, `DELETE FROM alert_deliveries WHERE attempted_at < $1`, cutoff); err != nil {
-		return fmt.Errorf("delete expired alert deliveries: %w", err)
-	}
-	return nil
-}
-
 var _ alerting.Store = (*AlertStore)(nil)

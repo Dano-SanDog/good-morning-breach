@@ -269,6 +269,39 @@ func (s *IdentityStore) DeleteAccount(ctx context.Context, actorID, targetID int
 	return nil
 }
 
+func (s *IdentityStore) ResetAccountTOTP(ctx context.Context, actorID, targetID int64) error {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return fmt.Errorf("begin authenticator reset: %w", err)
+	}
+	defer rollback(tx)
+	if err := requireActiveAdmin(queryCtx, tx, actorID); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(queryCtx, `UPDATE accounts SET totp_secret_ciphertext = NULL,
+		totp_nonce = NULL, totp_enrolled_at = NULL, last_totp_step = -1
+		WHERE id = $1`, targetID)
+	if err != nil {
+		return fmt.Errorf("reset authenticator: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return identity.ErrNotFound
+	}
+	if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE account_id = $1`, targetID); err != nil {
+		return fmt.Errorf("revoke sessions after authenticator reset: %w", err)
+	}
+	if err := insertAdminAudit(queryCtx, tx, actorID, targetID, "account_totp_reset", []byte(`{}`)); err != nil {
+		return err
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return fmt.Errorf("commit authenticator reset: %w", err)
+	}
+	return nil
+}
+
 func (s *IdentityStore) ListAdminAudit(ctx context.Context) ([]identity.AdminAuditRecord, error) {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
