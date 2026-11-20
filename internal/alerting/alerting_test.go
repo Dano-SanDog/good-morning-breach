@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -193,5 +194,47 @@ func TestSMTPRejectsHeaderInjection(t *testing.T) {
 	}
 	if err := sender.Send(context.Background(), "to@example.org", Message{Subject: "a\r\nBcc: x@example.org"}); err == nil {
 		t.Fatal("subject with CRLF accepted")
+	}
+}
+
+func TestFileMailer(t *testing.T) {
+	dir := t.TempDir() + "/mail"
+	mailer, err := NewFileMailer(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mailer.SendText(context.Background(), "a@example.org", "Reset", "link"); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %v, %v", entries, err)
+	}
+	info, _ := entries[0].Info()
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v", info.Mode().Perm())
+	}
+	data, _ := os.ReadFile(dir + "/" + entries[0].Name())
+	if !strings.Contains(string(data), "To: a@example.org") || !strings.HasSuffix(string(data), "\n\nlink") {
+		t.Fatalf("content = %q", data)
+	}
+	if err := mailer.SendText(context.Background(), "a@example.org\nBcc: x", "Reset", "x"); err == nil {
+		t.Fatal("header injection accepted")
+	}
+}
+
+func TestFileMailerRejectsUnsafeDirectories(t *testing.T) {
+	if _, err := NewFileMailer("relative/mail"); err == nil {
+		t.Fatal("relative path accepted")
+	}
+	open := t.TempDir() + "/open"
+	if err := os.Mkdir(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(open, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFileMailer(open); err == nil {
+		t.Fatal("group-readable directory accepted")
 	}
 }

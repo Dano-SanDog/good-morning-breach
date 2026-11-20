@@ -100,6 +100,15 @@ func run() error {
 			return fmt.Errorf("configure SMTP: %w", err)
 		}
 		identityService.EnablePasswordReset(identityStore, sender, "https://localhost:8443")
+	} else if devMailDir := os.Getenv("GB_DEV_MAIL_DIR"); devMailDir != "" {
+		devMailer, err := alerting.NewFileMailer(devMailDir)
+		if err != nil {
+			return fmt.Errorf("configure dev mail sink: %w", err)
+		}
+		identityService.EnablePasswordReset(identityStore, devMailer, "https://localhost:8443")
+		slog.Warn("GB_DEV_MAIL_DIR is set: password reset messages are written to files, not emailed; development use only", "event", "password_reset", "outcome", "dev_mail_sink", "directory", devMailDir)
+	} else {
+		slog.Warn("GB_SMTP_HOST and GB_DEV_MAIL_DIR are not set; password reset is disabled", "event", "password_reset", "outcome", "disabled")
 	}
 	assets, err := httpserver.EmbeddedAssets()
 	if err != nil {
