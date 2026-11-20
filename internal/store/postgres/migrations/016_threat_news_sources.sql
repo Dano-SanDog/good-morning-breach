@@ -49,7 +49,7 @@ INSERT INTO data_sources (
     (
         'cisa-blog',
         'CISA Blog',
-        'https://www.cisa.gov/cisa/blog.xml',
+        'https://www.cisa.gov/blog.xml',
         'U.S. federal government work. TLP:CLEAR, subject to copyright controls.',
         'https://www.cisa.gov/notification',
         'Store and display headlines and original links only. Do not use CISA or DHS logos or imply endorsement.',

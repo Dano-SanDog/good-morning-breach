@@ -15,7 +15,7 @@ const (
 	nvdLookback        = 72 * time.Hour
 	hibpLookback       = 30 * 24 * time.Hour
 	hackerNewsTopCount = 100
-	hackerNewsWorkers  = 6
+	hackerNewsWorkers  = 16
 	hackerNewsSuffix   = "/topstories.json"
 	nvdTimeLayout      = "2006-01-02T15:04:05.000"
 )
@@ -201,10 +201,6 @@ func (c *Collector) collectHackerNews(ctx context.Context, source Source) (items
 		}()
 	}
 	wg.Wait()
-	if ctx.Err() != nil {
-		return nil, 0, 0, "feed request timed out"
-	}
-
 	received = len(ids)
 	valid := 0
 	seen := map[string]struct{}{}

@@ -3,6 +3,7 @@ package ingest
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -78,5 +79,99 @@ func TestRunCollectsHackerNewsSecurityTitlesOnly(t *testing.T) {
 	items := store.completed
 	if len(items) != 1 || items[0].Title != "Ransomware hits hospital" || items[0].CanonicalURL != "https://example.org/a" {
 		t.Fatalf("unexpected items %+v", items)
+	}
+}
+
+func hnSource() Source {
+	source := testSource("hn")
+	source.Format = FormatHackerNews
+	source.Address = "https://hacker-news.firebaseio.com/v0/topstories.json"
+	return source
+}
+
+func TestHackerNewsFailurePaths(t *testing.T) {
+	notFound := func() *http.Response {
+		return &http.Response{StatusCode: http.StatusNotFound, Header: http.Header{}, Body: http.NoBody}
+	}
+	run := func(source Source, handler func(*http.Request) (*http.Response, error)) *memoryStore {
+		store := &memoryStore{sources: []Source{source}}
+		collector, _ := NewCollector(&http.Client{Transport: roundTripFunc(handler)}, store)
+		_, _ = collector.Run(context.Background())
+		return store
+	}
+	store := run(hnSource(), func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/v0/topstories.json" {
+			return jsonResponse(`[1,2]`), nil
+		}
+		return notFound(), nil
+	})
+	if len(store.failures) != 1 || len(store.completed) != 0 {
+		t.Fatalf("all item fetches failing must fail the source: %+v", store.failures)
+	}
+	store = run(hnSource(), func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/v0/topstories.json" {
+			return jsonResponse(`[1,2]`), nil
+		}
+		if r.URL.Path == "/v0/item/1.json" {
+			return jsonResponse(`{"id":1,"type":"story","title":"Critical vulnerability exploited","url":"https://example.org/x"}`), nil
+		}
+		return notFound(), nil
+	})
+	if len(store.failures) != 0 || len(store.completed) != 1 {
+		t.Fatalf("partial item failures keep fetched items: %+v", store.failures)
+	}
+	bad := hnSource()
+	bad.Address = "https://hacker-news.firebaseio.com/v0/newstories.json"
+	store = run(bad, func(*http.Request) (*http.Response, error) { return jsonResponse(`[1]`), nil })
+	if len(store.failures) != 1 {
+		t.Fatalf("a wrong address suffix must fail: %+v", store.failures)
+	}
+}
+
+func TestRunCollectsNVDAndHIBP(t *testing.T) {
+	nvd := testSource("nvd")
+	nvd.Format = FormatNVD
+	nvd.Address = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+	hibp := testSource("hibp")
+	hibp.Format = FormatHIBPBreaches
+	hibp.Address = "https://haveibeenpwned.com/api/v3/breaches"
+	store := &memoryStore{sources: []Source{nvd, hibp}}
+	var nvdQuery string
+	added := time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "services.nvd.nist.gov" {
+			nvdQuery = r.URL.RawQuery
+			return jsonResponse(`{"totalResults":1,"vulnerabilities":[{"cve":{"id":"CVE-2026-2222","descriptions":[{"lang":"en","value":"Bad bug"}]}}]}`), nil
+		}
+		return jsonResponse(`[{"Name":"Acme","Title":"Acme","AddedDate":"` + added + `","PwnCount":5}]`), nil
+	})}
+	collector, _ := NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(nvdQuery, "cvssV3Severity=CRITICAL") || len(store.completed) != 2 || len(store.failures) != 0 {
+		t.Fatalf("query=%q completed=%d failures=%v", nvdQuery, len(store.completed), store.failures)
+	}
+}
+
+func TestSeededThreatSourcesCarryLicenseAndAttribution(t *testing.T) {
+	data, err := os.ReadFile("../store/postgres/migrations/016_threat_news_sources.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(data)
+	for _, want := range []string{
+		"https://www.cisa.gov/blog.xml",
+		"This product uses the NVD API but is not endorsed or certified by the NVD.",
+		"https://haveibeenpwned.com",
+		"CC BY 4.0",
+		"No endorsement by the FBI is implied.",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("migration missing %q", want)
+		}
+	}
+	if strings.Contains(sql, "cisa.gov/cisa/blog.xml") {
+		t.Error("cisa blog seed must use the non-redirecting URL")
 	}
 }

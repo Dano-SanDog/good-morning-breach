@@ -140,5 +140,6 @@ test("shows the required NVD, MITRE, and Have I Been Pwned notices", () => {
   expect(markup).toContain("This product uses the NVD API but is not endorsed or certified by the NVD.");
   expect(markup).toContain("© 2026 The MITRE Corporation.");
   expect(markup).toContain("https://attack.mitre.org/resources/legal-and-branding/terms-of-use/");
+  expect(markup).toContain("MITRE ATT&amp;CK® and ATT&amp;CK® are registered trademarks of The MITRE Corporation.");
   expect(markup).toContain("https://haveibeenpwned.com");
 });
