@@ -42,7 +42,8 @@ type attackTerm struct {
 }
 
 type AttackIndex struct {
-	terms []attackTerm
+	terms      []attackTerm
+	techniques map[string]AttackTechnique
 }
 
 type stixBundle struct {
@@ -128,6 +129,15 @@ func TechniqueURL(id string) (string, bool) {
 	return "https://attack.mitre.org/techniques/" + pathID + "/", true
 }
 
+// Lookup returns a technique from the pinned bundle by ID.
+func (index *AttackIndex) Lookup(id string) (AttackTechnique, bool) {
+	if index == nil {
+		return AttackTechnique{}, false
+	}
+	technique, ok := index.techniques[id]
+	return technique, ok
+}
+
 func (index *AttackIndex) Match(title string) []AttackTechnique {
 	if index == nil || title == "" {
 		return []AttackTechnique{}
@@ -199,7 +209,7 @@ func buildAttackIndex(bundle stixBundle) *AttackIndex {
 		aliasesByID[id] = object.Aliases
 	}
 
-	index := &AttackIndex{}
+	index := &AttackIndex{techniques: techniques}
 	for _, technique := range techniques {
 		terms := append([]string{technique.Name}, aliasesByID[technique.ID]...)
 		for _, term := range terms {

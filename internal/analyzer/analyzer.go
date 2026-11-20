@@ -25,6 +25,9 @@ type Result struct {
 	Risk             Risk
 	Sentiment        Sentiment
 	AttackTechniques []AttackTechnique
+	CVEs             []string
+	Engine           Engine
+	Confidence       int
 }
 
 type categoryRule struct {
@@ -62,6 +65,7 @@ func Analyze(title string) Result {
 		Categories: categories,
 		Risk:       scoreRisk(normalized, categories),
 		Sentiment:  scoreSentiment(normalized, categories),
+		Engine:     EngineBaseline,
 	}
 }
 

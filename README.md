@@ -69,7 +69,7 @@ One or more categories per story. Starting list: Vulnerability, Exploited Vulner
 - Sentiment (tone of the story): Negative, Neutral, Positive.
 
 ### MITRE ATT&CK Analysis
-The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. This does not inspect article text or infer techniques semantically. ATT&CK tags are not yet included in email alerts.
+The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. A local semantic engine adds cue-based techniques (for example phishing, ransomware, brute force) validated against the bundle, extracts CVE identifiers, and groups stories that share a CVE as related. It uses only headlines and source-format hints, never article text, and falls back to the baseline analyzer. ATT&CK tags are not yet included in email alerts.
 
 ### Data Retention
 Stories are kept for 365 days. Alert delivery records are kept for 90 days.
@@ -162,7 +162,7 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Schedule collection while the server is stopped on macOS
 - [x] Add the approved launch sources (24 seeded sources; see Data Sources)
 - [x] Admin-editable categories and sources
-- [ ] Add categorization and risk scoring (a keyword baseline is implemented; semantic analysis remains)
+- [x] Add categorization and risk scoring (local semantic engine with keyword baseline fallback)
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
 - [ ] Complete the dashboard (filters, admin source status, footer notices, and catalog administration are implemented; semantic analysis, summaries, and summary search remain)

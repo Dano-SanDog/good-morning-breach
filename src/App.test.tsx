@@ -23,6 +23,8 @@ test("renders story titles as text and rejects unsafe external links", () => {
         risk: "Informational",
         sentiment: "Neutral",
         attackTechniques: [],
+        cves: [],
+        related: [],
       },
     }),
   );
@@ -50,6 +52,8 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
         tactics: ["Initial Access"],
         url: "https://attack.mitre.org/techniques/T1190/",
       }],
+      cves: ["CVE-2026-1111"],
+      related: [{ id: 2, title: "Other", url: "https://example.org/b", cve: "CVE-2026-1111" }],
     }],
   });
 
@@ -58,6 +62,8 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
   expect(parsed?.[0]?.sentiment).toBe("Negative");
   expect(parsed?.[0]?.attributions).toEqual(["Source: CERT-EU"]);
   expect(parsed?.[0]?.attackTechniques[0]?.url).toBe("https://attack.mitre.org/techniques/T1190/");
+  expect(parsed?.[0]?.cves).toEqual(["CVE-2026-1111"]);
+  expect(parsed?.[0]?.related[0]?.id).toBe(2);
   expect(Object.prototype).not.toHaveProperty("polluted");
 
   expect(parseStories({
@@ -72,6 +78,8 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       risk: "Severe",
       sentiment: "Neutral",
       attackTechniques: [],
+      cves: [],
+      related: [],
     }],
   })).toBeNull();
 
@@ -86,6 +94,25 @@ test("parses analysis labels as plain text and rejects invalid score values", ()
       categories: ["Other"],
       risk: "High",
       sentiment: "Negative",
+      attackTechniques: [],
+      cves: ["not-a-cve"],
+      related: [],
+    }],
+  })).toBeNull();
+
+  expect(parseStories({
+    stories: [{
+      id: 1,
+      title: "Headline",
+      url: "https://example.org/advisory",
+      sources: ["CERT-EU"],
+      attributions: ["Source: CERT-EU"],
+      publishedAt: null,
+      categories: ["Other"],
+      risk: "High",
+      sentiment: "Negative",
+      cves: [],
+      related: [],
       attackTechniques: [{
         id: `T1190"><script`,
         name: "Invalid",

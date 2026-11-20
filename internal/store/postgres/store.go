@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	currentAnalysisVersion       = 1
+	currentAnalysisVersion       = 2
 	analysisBatchSize            = 100
 	collectionLockID       int64 = 0x47424d434f4c4c
 )
@@ -210,15 +210,15 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 		if err != nil {
 			return 0, fmt.Errorf("upsert story: %w", err)
 		}
-		if err := s.saveStoryAnalysis(queryCtx, tx, storyID, item.Title); err != nil {
-			return 0, fmt.Errorf("analyze collected story: %w", err)
-		}
 		if _, err := tx.Exec(queryCtx, `INSERT INTO story_sources (story_id, source_id)
 			VALUES ($1, $2)
 			ON CONFLICT (story_id, source_id) DO NOTHING`,
 			storyID, source.ID,
 		); err != nil {
 			return 0, fmt.Errorf("associate story source: %w", err)
+		}
+		if err := s.saveStoryAnalysis(queryCtx, tx, storyID, item.Title); err != nil {
+			return 0, fmt.Errorf("analyze collected story: %w", err)
 		}
 	}
 
@@ -246,8 +246,14 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 }
 
 func (s *Store) saveStoryAnalysis(ctx context.Context, tx pgx.Tx, storyID int64, title string) error {
-	analysis := analyzer.Analyze(title)
-	analysis.AttackTechniques = s.attackIndex.Match(title)
+	var formats []string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(array_agg(DISTINCT data_sources.format), '{}')
+		FROM story_sources
+		JOIN data_sources ON data_sources.id = story_sources.source_id
+		WHERE story_sources.story_id = $1`, storyID).Scan(&formats); err != nil {
+		return fmt.Errorf("read story source formats: %w", err)
+	}
+	analysis := analyzer.AnalyzeStory(s.attackIndex, analyzer.Input{Title: title, SourceFormats: formats})
 
 	if _, err := tx.Exec(ctx, `DELETE FROM story_categories WHERE story_id = $1`, storyID); err != nil {
 		return fmt.Errorf("replace story categories: %w", err)
@@ -296,9 +302,21 @@ func (s *Store) saveStoryAnalysis(ctx context.Context, tx pgx.Tx, storyID int64,
 		}
 	}
 
+	if _, err := tx.Exec(ctx, `DELETE FROM story_cves WHERE story_id = $1`, storyID); err != nil {
+		return fmt.Errorf("replace story CVEs: %w", err)
+	}
+	for _, cve := range analysis.CVEs {
+		if _, err := tx.Exec(ctx, `INSERT INTO story_cves (story_id, cve_id)
+			VALUES ($1, $2) ON CONFLICT DO NOTHING`, storyID, cve); err != nil {
+			return fmt.Errorf("save story CVE: %w", err)
+		}
+	}
+
 	tag, err := tx.Exec(ctx, `UPDATE stories SET
-		risk = $2, sentiment = $3, analysis_version = $4, updated_at = clock_timestamp()
-		WHERE id = $1`, storyID, analysis.Risk, analysis.Sentiment, currentAnalysisVersion)
+		risk = $2, sentiment = $3, analysis_version = $4,
+		analysis_engine = $5, analysis_confidence = $6, updated_at = clock_timestamp()
+		WHERE id = $1`, storyID, analysis.Risk, analysis.Sentiment, currentAnalysisVersion,
+		string(analysis.Engine), analysis.Confidence)
 	if err != nil {
 		return fmt.Errorf("update story analysis: %w", err)
 	}

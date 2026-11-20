@@ -109,6 +109,17 @@ type Story struct {
 	Risk             string            `json:"risk"`
 	Sentiment        string            `json:"sentiment"`
 	AttackTechniques []AttackTechnique `json:"attackTechniques"`
+	CVEs             []string          `json:"cves"`
+	Related          []RelatedStory    `json:"related"`
+}
+
+// RelatedStory is another story that names the same CVE (FR-1.13). It carries
+// only the headline and link, which every content policy permits.
+type RelatedStory struct {
+	ID    int64  `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	CVE   string `json:"cve"`
 }
 
 type StoryFilter struct {

@@ -51,6 +51,8 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 		`CREATE TEMP TABLE story_categories (story_id bigint, category_id text)`,
 		`CREATE TEMP TABLE attack_techniques (technique_id text, name text, tactics text[])`,
 		`CREATE TEMP TABLE story_techniques (story_id bigint, technique_id text)`,
+		`CREATE TEMP TABLE story_cves (story_id bigint, cve_id text)`,
+		`INSERT INTO story_cves VALUES (1, 'CVE-2026-1111'), (2, 'CVE-2026-1111'), (3, 'CVE-2026-1111'), (1, 'CVE-2026-2222'), (2, 'CVE-2026-2222')`,
 		`CREATE TEMP TABLE collection_runs (source_id text, outcome text, finished_at timestamptz)`,
 		`INSERT INTO data_sources VALUES
 				  ('a', 'Feed A', 'A notice', true, now() - interval '30 hours', now() - interval '1 hour', 'failed'),
@@ -136,6 +138,14 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 	stories, err := store.ListStories(ctx, filter)
 	if err != nil || len(stories) != 101 {
 		t.Fatalf("first page: got %d stories, error %v", len(stories), err)
+	}
+	alpha, err := store.ListStories(ctx, identity.StoryFilter{After: time.Now().Add(-24 * time.Hour), Search: "alpha"})
+	if err != nil || len(alpha) != 1 {
+		t.Fatalf("alpha search: %+v, error %v", alpha, err)
+	}
+	withCVE := &alpha[0]
+	if len(withCVE.CVEs) != 2 || withCVE.Related[0].ID == withCVE.Related[1].ID || len(withCVE.Related) != 2 || withCVE.Related[0].CVE != "CVE-2026-1111" {
+		t.Fatalf("story 1 CVEs/related = %+v", withCVE)
 	}
 	filter.Offset = 100
 	stories, err = store.ListStories(ctx, filter)
