@@ -658,6 +658,22 @@ button:disabled {
   overflow-x: auto;
 }
 
+.admin-table-scroll::before {
+  display: none;
+  content: "Scroll sideways to see all columns.";
+  position: sticky;
+  left: 0;
+  padding: 4px 0 8px;
+  color: #4e4a6b;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .admin-table-scroll::before {
+    display: block;
+  }
+}
+
 .admin-table {
   min-width: 560px;
   width: 100%;
