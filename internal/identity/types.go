@@ -10,11 +10,8 @@ import (
 var (
 	ErrNotFound             = errors.New("identity record not found")
 	ErrAdminExists          = errors.New("an administrator already exists")
-	ErrCredentials          = errors.New("email, password, or code is incorrect")
+	ErrCredentials          = errors.New("email or password is incorrect")
 	ErrSession              = errors.New("session is invalid")
-	ErrOTPReplay            = errors.New("one-time code has already been used")
-	ErrTOTPEnrolled         = errors.New("time-based code is already enrolled")
-	ErrTOTPSetup            = errors.New("time-based code setup is not pending")
 	ErrAdminRequired        = errors.New("administrator role required")
 	ErrAccountExists        = errors.New("account already exists")
 	ErrLastAdmin            = errors.New("the last active administrator cannot be removed")
@@ -26,35 +23,27 @@ var (
 )
 
 type Account struct {
-	ID                   int64
-	Email                string
-	Role                 string
-	PasswordHash         string
-	Enabled              bool
-	TOTPRequired         bool
-	TOTPSecretCiphertext []byte
-	TOTPNonce            []byte
-	TOTPEnrolled         bool
-	LastTOTPStep         int64
-	LockedUntil          *time.Time
+	ID           int64
+	Email        string
+	Role         string
+	PasswordHash string
+	Enabled      bool
+	LockedUntil  *time.Time
 }
 
 type Session struct {
-	Account          Account
-	CreatedAt        time.Time
-	LastSeenAt       time.Time
-	ExpiresAt        time.Time
-	PartialExpiresAt *time.Time
+	Account    Account
+	CreatedAt  time.Time
+	LastSeenAt time.Time
+	ExpiresAt  time.Time
 }
 
 type ManagedAccount struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	Role         string    `json:"role"`
-	Enabled      bool      `json:"enabled"`
-	TOTPRequired bool      `json:"totpRequired"`
-	TOTPEnrolled bool      `json:"totpEnrolled"`
-	CreatedAt    time.Time `json:"createdAt"`
+	ID        int64     `json:"id"`
+	Email     string    `json:"email"`
+	Role      string    `json:"role"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 type AdminAuditRecord struct {
@@ -147,19 +136,15 @@ type Store interface {
 	CreateAccount(context.Context, int64, string, string, string) (ManagedAccount, error)
 	UpdateAccount(context.Context, int64, int64, *string, *bool) error
 	DeleteAccount(context.Context, int64, int64) error
-	ResetAccountTOTP(context.Context, int64, int64) error
 	ListAdminAudit(context.Context) ([]AdminAuditRecord, error)
 	ListSourceStatuses(context.Context) ([]SourceStatus, error)
 	GetAlertSettings(context.Context, int64) (AlertSettings, error)
 	SaveAlertSettings(context.Context, int64, AlertSettings) error
 	AccountByEmail(context.Context, string) (Account, error)
 	RecordFailedLogin(context.Context, int64, time.Time) (bool, error)
-	CreatePartialSession(context.Context, []byte, []byte, int64, time.Time, time.Time) error
 	CreateSession(context.Context, []byte, []byte, int64, time.Time) error
 	LoadSession(context.Context, []byte, time.Time) (Session, error)
 	TouchSession(context.Context, []byte, time.Time) error
-	BeginTOTPSetup(context.Context, []byte, int64, []byte, []byte, time.Time) error
-	CompleteTOTP(context.Context, []byte, []byte, int64, time.Time, bool) (Account, error)
 	DeleteSession(context.Context, []byte) error
 	ListStories(context.Context, StoryFilter) ([]Story, error)
 }

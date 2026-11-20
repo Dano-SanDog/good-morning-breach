@@ -20,7 +20,6 @@ import (
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
 	"github.com/Dano-SanDog/good-morning-breach/internal/retention"
-	"github.com/Dano-SanDog/good-morning-breach/internal/secrets"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
 )
 
@@ -82,12 +81,8 @@ func run() error {
 		slog.Info("backfilled story analysis", "count", analyzedStories)
 	}
 
-	dataKey, err := secrets.LoadDataKey()
-	if err != nil {
-		return fmt.Errorf("load application data key: %w", err)
-	}
 	identityStore := postgres.NewIdentityStore(pool)
-	identityService, err := identity.NewService(identityStore, dataKey, egress.NewHTTPClient())
+	identityService, err := identity.NewService(identityStore, egress.NewHTTPClient())
 	if err != nil {
 		return fmt.Errorf("configure identity service: %w", err)
 	}

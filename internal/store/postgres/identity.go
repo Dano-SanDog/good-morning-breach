@@ -65,7 +65,7 @@ func (s *IdentityStore) ListAccounts(ctx context.Context) ([]identity.ManagedAcc
 	defer cancel()
 
 	rows, err := s.pool.Query(queryCtx, `SELECT
-		id, email, role, enabled, totp_required, totp_enrolled_at IS NOT NULL, created_at
+		id, email, role, enabled, created_at
 		FROM accounts
 		ORDER BY email`)
 	if err != nil {
@@ -81,8 +81,6 @@ func (s *IdentityStore) ListAccounts(ctx context.Context) ([]identity.ManagedAcc
 			&account.Email,
 			&account.Role,
 			&account.Enabled,
-			&account.TOTPRequired,
-			&account.TOTPEnrolled,
 			&account.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan managed account: %w", err)
@@ -119,15 +117,13 @@ func (s *IdentityStore) CreateAccount(
 	err = tx.QueryRow(queryCtx, `INSERT INTO accounts (email, password_hash, role)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (email) DO NOTHING
-		RETURNING id, email, role, enabled, totp_required, false, created_at`,
+		RETURNING id, email, role, enabled, created_at`,
 		email, passwordHash, role,
 	).Scan(
 		&account.ID,
 		&account.Email,
 		&account.Role,
 		&account.Enabled,
-		&account.TOTPRequired,
-		&account.TOTPEnrolled,
 		&account.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -269,39 +265,6 @@ func (s *IdentityStore) DeleteAccount(ctx context.Context, actorID, targetID int
 	return nil
 }
 
-func (s *IdentityStore) ResetAccountTOTP(ctx context.Context, actorID, targetID int64) error {
-	queryCtx, cancel := databaseContext(ctx)
-	defer cancel()
-
-	tx, err := s.pool.Begin(queryCtx)
-	if err != nil {
-		return fmt.Errorf("begin authenticator reset: %w", err)
-	}
-	defer rollback(tx)
-	if err := requireActiveAdmin(queryCtx, tx, actorID); err != nil {
-		return err
-	}
-	tag, err := tx.Exec(queryCtx, `UPDATE accounts SET totp_secret_ciphertext = NULL,
-		totp_nonce = NULL, totp_enrolled_at = NULL, last_totp_step = -1
-		WHERE id = $1`, targetID)
-	if err != nil {
-		return fmt.Errorf("reset authenticator: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return identity.ErrNotFound
-	}
-	if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE account_id = $1`, targetID); err != nil {
-		return fmt.Errorf("revoke sessions after authenticator reset: %w", err)
-	}
-	if err := insertAdminAudit(queryCtx, tx, actorID, targetID, "account_totp_reset", []byte(`{}`)); err != nil {
-		return err
-	}
-	if err := tx.Commit(queryCtx); err != nil {
-		return fmt.Errorf("commit authenticator reset: %w", err)
-	}
-	return nil
-}
-
 func (s *IdentityStore) ListAdminAudit(ctx context.Context) ([]identity.AdminAuditRecord, error) {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
@@ -395,9 +358,7 @@ func (s *IdentityStore) AccountByEmail(ctx context.Context, email string) (ident
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	account, err := scanAccount(s.pool.QueryRow(queryCtx, `SELECT
-		id, email, role, password_hash, enabled, totp_required,
-		totp_secret_ciphertext, totp_nonce, totp_enrolled_at,
-		last_totp_step, locked_until
+		id, email, role, password_hash, enabled, locked_until
 		FROM accounts WHERE email = $1`, email))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.Account{}, identity.ErrNotFound
@@ -414,16 +375,16 @@ func (s *IdentityStore) RecordFailedLogin(ctx context.Context, accountID int64, 
 	var lockedUntil *time.Time
 	err := s.pool.QueryRow(queryCtx, `UPDATE accounts SET
 		failure_window_started_at = CASE
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
-			THEN $2 ELSE failure_window_started_at END,
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
+			THEN $2::timestamptz ELSE failure_window_started_at END,
 		failed_login_count = CASE
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
 			THEN 1 ELSE failed_login_count + 1 END,
 		locked_until = CASE
-			WHEN locked_until > $2 THEN locked_until
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
+			WHEN locked_until > $2::timestamptz THEN locked_until
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
 			THEN NULL
-			WHEN failed_login_count + 1 >= 5 THEN $2 + interval '15 minutes'
+			WHEN failed_login_count + 1 >= 5 THEN $2::timestamptz + interval '15 minutes'
 			ELSE NULL END
 		WHERE id = $1
 		RETURNING locked_until`, accountID, now).Scan(&lockedUntil)
@@ -436,30 +397,11 @@ func (s *IdentityStore) RecordFailedLogin(ctx context.Context, accountID int64, 
 	return lockedUntil != nil && lockedUntil.After(now), nil
 }
 
-func (s *IdentityStore) CreatePartialSession(
-	ctx context.Context,
-	previousHash, tokenHash []byte,
-	accountID int64,
-	now, partialExpiresAt time.Time,
-) error {
-	return s.createSession(ctx, previousHash, tokenHash, accountID, now, &partialExpiresAt)
-}
-
 func (s *IdentityStore) CreateSession(
 	ctx context.Context,
 	previousHash, tokenHash []byte,
 	accountID int64,
 	now time.Time,
-) error {
-	return s.createSession(ctx, previousHash, tokenHash, accountID, now, nil)
-}
-
-func (s *IdentityStore) createSession(
-	ctx context.Context,
-	previousHash, tokenHash []byte,
-	accountID int64,
-	now time.Time,
-	partialExpiresAt *time.Time,
 ) error {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
@@ -475,11 +417,16 @@ func (s *IdentityStore) createSession(
 		}
 	}
 	if _, err := tx.Exec(queryCtx, `INSERT INTO auth_sessions (
-		token_hash, account_id, created_at, last_seen_at, expires_at, partial_expires_at
-	) VALUES ($1, $2, $3, $3, $4, $5)`,
-		tokenHash, accountID, now, now.Add(8*time.Hour), partialExpiresAt,
+		token_hash, account_id, created_at, last_seen_at, expires_at
+	) VALUES ($1, $2, $3, $3, $4)`,
+		tokenHash, accountID, now, now.Add(8*time.Hour),
 	); err != nil {
 		return fmt.Errorf("create sign-in session: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `UPDATE accounts SET
+		failed_login_count = 0, failure_window_started_at = NULL, locked_until = NULL
+		WHERE id = $1`, accountID); err != nil {
+		return fmt.Errorf("clear failed sign-in state: %w", err)
 	}
 	if err := tx.Commit(queryCtx); err != nil {
 		return fmt.Errorf("commit sign-in session: %w", err)
@@ -491,11 +438,9 @@ func (s *IdentityStore) LoadSession(ctx context.Context, tokenHash []byte, now t
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	var session identity.Session
-	var enrolledAt *time.Time
 	err := s.pool.QueryRow(queryCtx, `SELECT
-		a.id, a.email, a.role, a.password_hash, a.enabled, a.totp_required,
-		a.totp_secret_ciphertext, a.totp_nonce, a.totp_enrolled_at, a.last_totp_step, a.locked_until,
-		s.created_at, s.last_seen_at, s.expires_at, s.partial_expires_at
+		a.id, a.email, a.role, a.password_hash, a.enabled, a.locked_until,
+		s.created_at, s.last_seen_at, s.expires_at
 		FROM auth_sessions s JOIN accounts a ON a.id = s.account_id
 		WHERE s.token_hash = $1`, tokenHash).Scan(
 		&session.Account.ID,
@@ -503,16 +448,10 @@ func (s *IdentityStore) LoadSession(ctx context.Context, tokenHash []byte, now t
 		&session.Account.Role,
 		&session.Account.PasswordHash,
 		&session.Account.Enabled,
-		&session.Account.TOTPRequired,
-		&session.Account.TOTPSecretCiphertext,
-		&session.Account.TOTPNonce,
-		&enrolledAt,
-		&session.Account.LastTOTPStep,
 		&session.Account.LockedUntil,
 		&session.CreatedAt,
 		&session.LastSeenAt,
 		&session.ExpiresAt,
-		&session.PartialExpiresAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.Session{}, identity.ErrSession
@@ -520,11 +459,9 @@ func (s *IdentityStore) LoadSession(ctx context.Context, tokenHash []byte, now t
 	if err != nil {
 		return identity.Session{}, fmt.Errorf("load sign-in session: %w", err)
 	}
-	session.Account.TOTPEnrolled = enrolledAt != nil
 
 	expired := !session.ExpiresAt.After(now) ||
 		now.Sub(session.LastSeenAt) > 30*time.Minute ||
-		(session.PartialExpiresAt != nil && !session.PartialExpiresAt.After(now)) ||
 		!session.Account.Enabled
 	if expired {
 		if _, err := s.pool.Exec(queryCtx, `DELETE FROM auth_sessions WHERE token_hash = $1`, tokenHash); err != nil {
@@ -540,9 +477,8 @@ func (s *IdentityStore) TouchSession(ctx context.Context, tokenHash []byte, now 
 	defer cancel()
 	tag, err := s.pool.Exec(queryCtx, `UPDATE auth_sessions SET last_seen_at = $2
 		WHERE token_hash = $1
-			AND partial_expires_at IS NULL
 			AND expires_at > $2
-			AND last_seen_at > $2 - interval '30 minutes'
+			AND last_seen_at > $2::timestamptz - interval '30 minutes'
 			AND EXISTS (
 				SELECT 1 FROM accounts WHERE accounts.id = auth_sessions.account_id AND accounts.enabled
 			)`, tokenHash, now)
@@ -553,118 +489,6 @@ func (s *IdentityStore) TouchSession(ctx context.Context, tokenHash []byte, now 
 		return identity.ErrSession
 	}
 	return nil
-}
-
-func (s *IdentityStore) BeginTOTPSetup(
-	ctx context.Context,
-	sessionHash []byte,
-	accountID int64,
-	ciphertext, nonce []byte,
-	now time.Time,
-) error {
-	queryCtx, cancel := databaseContext(ctx)
-	defer cancel()
-	tag, err := s.pool.Exec(queryCtx, `UPDATE accounts a SET
-		totp_secret_ciphertext = $3, totp_nonce = $4
-		WHERE a.id = $2 AND a.totp_enrolled_at IS NULL AND EXISTS (
-			SELECT 1 FROM auth_sessions s
-			WHERE s.token_hash = $1 AND s.account_id = a.id
-				AND s.partial_expires_at > $5
-		)`,
-		sessionHash, accountID, ciphertext, nonce, now,
-	)
-	if err != nil {
-		return fmt.Errorf("save pending time-based code: %w", err)
-	}
-	if tag.RowsAffected() != 1 {
-		return identity.ErrTOTPSetup
-	}
-	return nil
-}
-
-func (s *IdentityStore) CompleteTOTP(
-	ctx context.Context,
-	oldHash, newHash []byte,
-	step int64,
-	now time.Time,
-	setup bool,
-) (identity.Account, error) {
-	queryCtx, cancel := databaseContext(ctx)
-	defer cancel()
-	tx, err := s.pool.Begin(queryCtx)
-	if err != nil {
-		return identity.Account{}, fmt.Errorf("begin time-based code verification: %w", err)
-	}
-	defer rollback(tx)
-
-	var account identity.Account
-	var enrolledAt, partialExpiresAt *time.Time
-	err = tx.QueryRow(queryCtx, `SELECT
-		a.id, a.email, a.role, a.password_hash, a.enabled, a.totp_required,
-		a.totp_secret_ciphertext, a.totp_nonce, a.totp_enrolled_at, a.last_totp_step, a.locked_until,
-		s.partial_expires_at
-		FROM auth_sessions s JOIN accounts a ON a.id = s.account_id
-		WHERE s.token_hash = $1
-		FOR UPDATE OF s, a`, oldHash).Scan(
-		&account.ID,
-		&account.Email,
-		&account.Role,
-		&account.PasswordHash,
-		&account.Enabled,
-		&account.TOTPRequired,
-		&account.TOTPSecretCiphertext,
-		&account.TOTPNonce,
-		&enrolledAt,
-		&account.LastTOTPStep,
-		&account.LockedUntil,
-		&partialExpiresAt,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return identity.Account{}, identity.ErrSession
-	}
-	if err != nil {
-		return identity.Account{}, fmt.Errorf("load time-based code verification state: %w", err)
-	}
-	account.TOTPEnrolled = enrolledAt != nil
-	if !account.Enabled || partialExpiresAt == nil || !partialExpiresAt.After(now) {
-		return identity.Account{}, identity.ErrSession
-	}
-	if setup == account.TOTPEnrolled {
-		return identity.Account{}, identity.ErrTOTPSetup
-	}
-	if account.TOTPEnrolled && (account.TOTPSecretCiphertext == nil || account.TOTPNonce == nil) {
-		return identity.Account{}, errors.New("enrolled account has no time-based code")
-	}
-	if step <= account.LastTOTPStep {
-		return identity.Account{}, identity.ErrOTPReplay
-	}
-	if account.LockedUntil != nil && account.LockedUntil.After(now) {
-		return identity.Account{}, identity.ErrCredentials
-	}
-	if _, err := tx.Exec(queryCtx, `UPDATE accounts SET
-		last_totp_step = $2,
-		totp_enrolled_at = CASE WHEN $3 THEN $4 ELSE totp_enrolled_at END,
-		failure_window_started_at = NULL,
-		failed_login_count = 0,
-		locked_until = NULL
-		WHERE id = $1`, account.ID, step, setup, now); err != nil {
-		return identity.Account{}, fmt.Errorf("complete time-based code verification: %w", err)
-	}
-	if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE token_hash = $1`, oldHash); err != nil {
-		return identity.Account{}, fmt.Errorf("rotate partial sign-in session: %w", err)
-	}
-	if _, err := tx.Exec(queryCtx, `INSERT INTO auth_sessions (
-		token_hash, account_id, created_at, last_seen_at, expires_at
-	) VALUES ($1, $2, $3, $3, $4)`, newHash, account.ID, now, now.Add(8*time.Hour)); err != nil {
-		return identity.Account{}, fmt.Errorf("create authenticated session: %w", err)
-	}
-	if err := tx.Commit(queryCtx); err != nil {
-		return identity.Account{}, fmt.Errorf("commit time-based code verification: %w", err)
-	}
-	account.TOTPEnrolled = true
-	account.LastTOTPStep = step
-	account.LockedUntil = nil
-	return account, nil
 }
 
 func (s *IdentityStore) DeleteSession(ctx context.Context, tokenHash []byte) error {
@@ -889,21 +713,14 @@ func (s *IdentityStore) SaveAlertSettings(ctx context.Context, accountID int64, 
 
 func scanAccount(row pgx.Row) (identity.Account, error) {
 	var account identity.Account
-	var enrolledAt *time.Time
 	err := row.Scan(
 		&account.ID,
 		&account.Email,
 		&account.Role,
 		&account.PasswordHash,
 		&account.Enabled,
-		&account.TOTPRequired,
-		&account.TOTPSecretCiphertext,
-		&account.TOTPNonce,
-		&enrolledAt,
-		&account.LastTOTPStep,
 		&account.LockedUntil,
 	)
-	account.TOTPEnrolled = enrolledAt != nil
 	return account, err
 }
 

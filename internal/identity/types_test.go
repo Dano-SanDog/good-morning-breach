@@ -13,10 +13,8 @@ func TestSensitiveIdentityTypesAreRedactedInLogs(t *testing.T) {
 	logger := slog.New(slog.NewJSONHandler(&output, nil))
 	logger.Info("sensitive values",
 		"account", Account{
-			Email:                "private@example.test",
-			PasswordHash:         "password-hash",
-			TOTPSecretCiphertext: []byte("encrypted-secret"),
-			TOTPNonce:            []byte("nonce"),
+			Email:        "private@example.test",
+			PasswordHash: "password-hash",
 		},
 		"session", Session{CreatedAt: time.Now()},
 		"user", AuthenticatedUser{Email: "private@example.test"},
@@ -26,8 +24,6 @@ func TestSensitiveIdentityTypesAreRedactedInLogs(t *testing.T) {
 	for _, secret := range []string{
 		"private@example.test",
 		"password-hash",
-		"encrypted-secret",
-		"nonce",
 		"session-token",
 	} {
 		if strings.Contains(record, secret) {

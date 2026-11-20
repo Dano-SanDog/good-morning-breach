@@ -65,7 +65,7 @@ func (emptyRange) RoundTrip(*http.Request) (*http.Response, error) {
 
 func newResetService(t *testing.T) (*Service, *fakeResetStore, *fakeMailer, *time.Time) {
 	t.Helper()
-	service, err := NewService(&memoryIdentityStore{}, make([]byte, 32), &http.Client{Transport: emptyRange{}})
+	service, err := NewService(&memoryIdentityStore{}, &http.Client{Transport: emptyRange{}})
 	if err != nil {
 		t.Fatal(err)
 	}

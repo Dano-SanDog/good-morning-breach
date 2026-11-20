@@ -67,6 +67,9 @@ var semanticAnalysisMigration string
 //go:embed migrations/019_retention_and_totp_reset.sql
 var retentionAndTOTPResetMigration string
 
+//go:embed migrations/020_remove_totp.sql
+var removeTOTPMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -94,6 +97,7 @@ var migrations = []migration{
 	{version: 17, sql: catalogAdministrationMigration},
 	{version: 18, sql: semanticAnalysisMigration},
 	{version: 19, sql: retentionAndTOTPResetMigration},
+	{version: 20, sql: removeTOTPMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

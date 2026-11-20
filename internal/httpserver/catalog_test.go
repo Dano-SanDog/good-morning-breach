@@ -27,7 +27,7 @@ func (s *handlerCatalogStore) DeleteSource(context.Context, int64, string) error
 
 func catalogRouter(t *testing.T, role string, store catalog.Store) http.Handler {
 	t.Helper()
-	service, err := identity.NewService(&sourceHealthIdentityStore{role: role}, make([]byte, 32), http.DefaultClient)
+	service, err := identity.NewService(&sourceHealthIdentityStore{role: role}, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}

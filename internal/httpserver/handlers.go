@@ -18,7 +18,7 @@ import (
 )
 
 const sessionCookieName = "__Host-gmb_session"
-const credentialErrorMessage = "Email, password, or code is incorrect."
+const credentialErrorMessage = "Email or password is incorrect."
 
 type apiHandlers struct {
 	identity *identity.Service
@@ -28,11 +28,7 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	api := &apiHandlers{identity: service}
 	router.POST("/api/auth/login", requireCSRF(), api.login)
 	router.GET("/api/auth/session", api.currentUser)
-	router.GET("/api/auth/challenge", api.challenge)
 	router.POST("/api/auth/activity", requireCSRF(), api.activity)
-	router.POST("/api/auth/totp/setup/start", requireCSRF(), api.beginTOTPSetup)
-	router.POST("/api/auth/totp/setup/confirm", requireCSRF(), api.confirmTOTPSetup)
-	router.POST("/api/auth/totp/login", requireCSRF(), api.completeTOTPLogin)
 	router.POST("/api/auth/password-reset/request", requireCSRF(), api.requestPasswordReset)
 	router.POST("/api/auth/password-reset/confirm", requireCSRF(), api.confirmPasswordReset)
 	router.POST("/api/auth/logout", requireCSRF(), api.logout)
@@ -43,7 +39,6 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.POST("/api/admin/accounts", requireCSRF(), api.createAccount)
 	router.PATCH("/api/admin/accounts/:id", requireCSRF(), api.updateAccount)
 	router.DELETE("/api/admin/accounts/:id", requireCSRF(), api.deleteAccount)
-	router.POST("/api/admin/accounts/:id/reset-totp", requireCSRF(), api.resetAccountTOTP)
 	router.GET("/api/admin/audit", api.adminAudit)
 	router.GET("/api/admin/sources", api.adminSources)
 
@@ -90,13 +85,8 @@ func (h *apiHandlers) login(c *gin.Context) {
 		writeInternalError(c, err)
 		return
 	}
-	if result.User != nil {
-		setSessionCookie(c, result.Token, 8*60*60)
-		c.JSON(http.StatusOK, result.User)
-		return
-	}
-	setSessionCookie(c, result.Token, 5*60)
-	c.JSON(http.StatusOK, gin.H{"next": result.Next})
+	setSessionCookie(c, result.Token, 8*60*60)
+	c.JSON(http.StatusOK, result.User)
 }
 
 func (h *apiHandlers) requestPasswordReset(c *gin.Context) {
@@ -152,21 +142,6 @@ func (h *apiHandlers) currentUser(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-func (h *apiHandlers) challenge(c *gin.Context) {
-	token, _ := c.Cookie(sessionCookieName)
-	challenge, err := h.identity.CurrentChallenge(c.Request.Context(), token)
-	if errors.Is(err, identity.ErrSession) {
-		logAuthorizationDenial(c)
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
-		return
-	}
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, challenge)
-}
-
 func (h *apiHandlers) activity(c *gin.Context) {
 	var request struct{}
 	if err := decodeStrictJSON(c, &request); err != nil {
@@ -184,61 +159,6 @@ func (h *apiHandlers) activity(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
-}
-
-func (h *apiHandlers) beginTOTPSetup(c *gin.Context) {
-	var request struct{}
-	if err := decodeStrictJSON(c, &request); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
-		return
-	}
-	token, _ := c.Cookie(sessionCookieName)
-	secret, err := h.identity.BeginTOTPSetup(c.Request.Context(), token)
-	if errors.Is(err, identity.ErrSession) || errors.Is(err, identity.ErrTOTPSetup) ||
-		errors.Is(err, identity.ErrTOTPEnrolled) {
-		logAuthorizationDenial(c)
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Authentication required."})
-		return
-	}
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"secret": secret})
-}
-
-func (h *apiHandlers) confirmTOTPSetup(c *gin.Context) {
-	h.completeTOTP(c, true)
-}
-
-func (h *apiHandlers) completeTOTPLogin(c *gin.Context) {
-	h.completeTOTP(c, false)
-}
-
-func (h *apiHandlers) completeTOTP(c *gin.Context, setup bool) {
-	var request struct {
-		Code string `json:"code"`
-	}
-	if err := decodeStrictJSON(c, &request); err != nil || !sixDigitCode(request.Code) {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
-		return
-	}
-	token, _ := c.Cookie(sessionCookieName)
-	user, newToken, err := h.identity.CompleteTOTP(c.Request.Context(), token, request.Code, setup)
-	if errors.Is(err, identity.ErrCredentials) || errors.Is(err, identity.ErrSession) ||
-		errors.Is(err, identity.ErrOTPReplay) || errors.Is(err, identity.ErrTOTPSetup) {
-		if !errors.Is(err, identity.ErrCredentials) {
-			logAuthorizationDenial(c)
-		}
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": credentialErrorMessage})
-		return
-	}
-	if err != nil {
-		writeInternalError(c, err)
-		return
-	}
-	setSessionCookie(c, newToken, 8*60*60)
-	c.JSON(http.StatusOK, user)
 }
 
 func (h *apiHandlers) logout(c *gin.Context) {
@@ -481,28 +401,6 @@ func (h *apiHandlers) deleteAccount(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h *apiHandlers) resetAccountTOTP(c *gin.Context) {
-	targetID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil || targetID < 1 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID."})
-		return
-	}
-	var request struct{}
-	if err := decodeStrictJSON(c, &request); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
-		return
-	}
-	token, _ := c.Cookie(sessionCookieName)
-	if err := h.identity.ResetAccountTOTP(c.Request.Context(), token, targetID); err != nil {
-		if writeAdminError(c, err) {
-			return
-		}
-		writeInternalError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
-}
-
 func (h *apiHandlers) adminAudit(c *gin.Context) {
 	token, _ := c.Cookie(sessionCookieName)
 	records, err := h.identity.ListAdminAudit(c.Request.Context(), token)
@@ -586,18 +484,6 @@ func decodeStrictJSON(c *gin.Context, destination any) error {
 		return errors.New("request must contain one JSON value")
 	}
 	return nil
-}
-
-func sixDigitCode(code string) bool {
-	if len(code) != 6 {
-		return false
-	}
-	for _, digit := range code {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func setSessionCookie(c *gin.Context, token string, maxAge int) {

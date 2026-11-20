@@ -12,7 +12,7 @@ This file owns the secure-coding rules. `REQUIREMENTS.md` owns WHAT the system d
 
 **Confirmed components (from ARCHITECTURE.md, Stack):**
 - Go 1.27.x (`net/http`, `crypto/*`, `html/template`, `log/slog`, `net/smtp`); Gin v1.12.x
-- PostgreSQL 18.x via `github.com/jackc/pgx/v5` v5.13.0; RSS parsing via `github.com/mmcdole/gofeed` v1.5.0; password hashing via `golang.org/x/crypto` v0.59.0; TOTP via `github.com/pquerna/otp` v1.5.0; hidden terminal input via `golang.org/x/term` v0.48.0; indirect barcode dependency `github.com/boombuler/barcode` v1.1.0
+- PostgreSQL 18.x via `github.com/jackc/pgx/v5` v5.13.0; RSS parsing via `github.com/mmcdole/gofeed` v1.5.0; password hashing via `golang.org/x/crypto` v0.59.0; hidden terminal input via `golang.org/x/term` v0.48.0
 - React + React DOM 19.3.x; TypeScript 7.0.x; Vite 8.3.x; Node.js 26.x LTS (build machine only); npm; Vitest
 - Outbound: SMTP (owner's mail account, provider UNKNOWN), Twilio Programmable Messaging REST API 2010-04-01, Slack incoming webhooks, HIBP Pwned Passwords range API v3, collection sources (FR-1.14), MITRE ATT&CK STIX bundle (data file)
 - Deployment: one machine, server on localhost only with a local TLS certificate, one Go process, local PostgreSQL (AQ-1, AQ-2)
@@ -31,13 +31,12 @@ Rules for PROPOSED components apply only while those components stay in the stac
 - *LLM or AI-specific controls:* not applicable. The Analyzer uses local rules only (AQ-3).
 
 **Gaps and conflicts:**
-- FR-6.6 sets a 12-character minimum. NIST SP 800-63B-4 allows 8 when the password is used with MFA and requires 15 when it is the only factor. Login always needs TOTP (FR-6.5), so 12 is stricter than the source. No conflict.
+- FR-6.6 sets a 12-character minimum. NIST SP 800-63B-4 allows 8 when the password is used with MFA and requires 15 when it is the only factor. The owner removed the TOTP factor (FR-6.5), so the password is now the only factor and NIST asks for 15. FR-6.6 keeps 12, which is below that guidance. **Residual risk, accepted by the owner:** password-only sign-in, with email password reset as the sole recovery path. Compensating controls kept: HIBP breach check (fail closed), Argon2id, 5-failures-in-15-minutes lockout, uniform failure message, hashed server-side sessions with 30-minute idle and 8-hour absolute timeouts, session rotation, reset-link rate limits, CSRF, and loopback-only HTTPS.
 - These gaps were resolved by delegated decision (former OD-001 to OD-008):
   - absolute session timeout (FR-6.10 sets only an idle timeout): SC-061
   - secrets at rest: SC-071
   - local TLS certificate and HSTS: SC-002, SC-007
   - phone verification code limits (FR-4.15): SC-056
-  - lost TOTP device: SC-057
   - rate limits on messages the system sends: SC-058
   - application log retention: SC-083
   - version pinning policy for PROPOSED packages: SC-091
@@ -59,7 +58,7 @@ All retrieved 2026-11-13.
 - **S-05 encoding/xml**: https://pkg.go.dev/encoding/xml, `Decoder.Strict` and `Entity`. Supports: Collector (via gofeed).
 - **S-06 Gin**: https://pkg.go.dev/github.com/gin-gonic/gin (`SetTrustedProxies`, `SetMode`, `BindJSON`) and https://gin-gonic.com/en/docs/deployment/. v1.12.x. Supports: HTTP API.
 - **S-07 pgx v5**: https://pkg.go.dev/github.com/jackc/pgx/v5, placeholders, `Identifier.Sanitize`, simple-protocol warning. Supports: data access.
-- **S-08 pquerna/otp totp**: https://pkg.go.dev/github.com/pquerna/otp/totp and https://github.com/pquerna/otp/blob/master/totp/totp.go, `Validate`, `ValidateCustom`, `ValidateOpts`. v1.5.0 page. Supports: Identity.
+- **S-08** (withdrawn with SC-053: the TOTP library was removed).
 - **S-09 PostgreSQL 18 release notes**: https://www.postgresql.org/docs/18/release-18.html, MD5 deprecation and libpq `sslkeylogfile`. Supports: PostgreSQL.
 - **S-10 OWASP Password Storage Cheat Sheet**: https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#argon2id. Supports: Identity.
 - **S-11 NIST SP 800-63B Rev. 4**: https://pages.nist.gov/800-63-4/sp800-63b.html, §3.1.1.2 (passwords) and §3.1.4.2 / §3.1.5.2 (OTP replay). Page dated 2025-08-26. Supports: Identity.
@@ -374,19 +373,13 @@ All retrieved 2026-11-13.
 - **Verification:** A mock asserts the request path is 5 characters and the header is present. With the network blocked, setting a password fails with a "try again later" message.
 
 **SC-053 — TOTP verification**
-- **Status:** ACTIVE
-- **Rule:**
-  - TOTP MUST be checked with `totp.ValidateCustom` using Period 30, Digits 6, SHA1, and Skew 1, set explicitly.
-  - The last accepted time step MUST be stored per account, and a code for that step or an earlier one MUST be rejected.
-  - TOTP secrets MUST be generated with at least 160 bits.
-- **Enforcement:** Identity.
-- **Evidence:** FR-6.5, FR-6.15; S-08 (Validate defaults; no replay protection); S-11 (an OTP is accepted only once). Explicit parameters are a project decision.
-- **Verification:** The same valid code used twice within 30 seconds fails the second time with the generic error (FR-6.8).
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: the TOTP factor was removed (FR-6.5). The ID is kept for traceability.
 
 **SC-054 — Uniform login failure and lockout**
 - **Status:** ACTIVE
 - **Rule:**
-  - Every login failure MUST return the single DESIGN.md message: wrong email, wrong password, wrong code, locked account, or disabled account.
+  - Every login failure MUST return the single DESIGN.md message: wrong email, wrong password, locked account, or disabled account.
   - The password hash check MUST run even for unknown emails, using a dummy hash.
   - After 5 failures in 15 minutes, the account MUST be blocked for 15 minutes.
 - **Enforcement:** Identity.
@@ -424,18 +417,8 @@ All retrieved 2026-11-13.
   - The first code fails after a second code is sent.
 
 **SC-057 — TOTP loss and recovery**
-- **Status:** ACTIVE
-- **Rule:**
-  - The only recovery path is an admin resetting another account's TOTP. The reset MUST delete the TOTP secret, end all of that account's sessions, write an audit row, and force TOTP setup at the next login (FR-6.15).
-  - An admin MUST NOT reset their own TOTP through the web.
-  - If the last admin loses their device, recovery MUST use the local install CLI (TB-5).
-  - There are no recovery codes. No other path MAY skip TOTP. *(delegated decision)*
-- **Enforcement:** Identity; installer CLI.
-- **Evidence:** FR-6.5, FR-6.15, FR-9.6; ARCHITECTURE.md TB-5; S-11; S-12 (invalidate sessions on credential change).
-- **Verification:**
-  - After an admin reset, the target's old session returns 401, and the next login requires enrolment.
-  - A user-role request to the reset route returns 403.
-  - An admin's reset of their own TOTP returns 403.
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: there is no TOTP to lose or reset. A lost password is recovered through the email reset link (SC-055) or, for the last admin without working email, by the local install CLI (TB-5). The ID is kept for traceability.
 
 **SC-058 — Request rate limits**
 - **Status:** ACTIVE
@@ -463,7 +446,7 @@ All retrieved 2026-11-13.
 **SC-061 — Session lifecycle**
 - **Status:** ACTIVE
 - **Rule:**
-  - A new session ID MUST be issued after full login (password plus TOTP) and after a role change. The previous session MUST be destroyed.
+  - A new session ID MUST be issued after full login (password) and after a role change. The previous session MUST be destroyed.
   - Sessions MUST end server-side after 30 minutes idle, after 8 hours in total (absolute timeout, *delegated decision*), and at logout.
   - Disabling or deleting an account MUST end its sessions.
 - **Enforcement:** Identity.
@@ -475,13 +458,8 @@ All retrieved 2026-11-13.
   - Logout followed by replaying the old cookie returns 401.
 
 **SC-062 — Partial-login state**
-- **Status:** ACTIVE
-- **Rule:**
-  - A session that has passed the password but not TOTP, or that still needs TOTP setup (FR-6.15), MUST reach only the TOTP endpoints. It MUST expire after 5 minutes (project decision).
-  - The client UI MUST NOT be the gate.
-- **Enforcement:** HTTP API middleware.
-- **Evidence:** FR-6.5, FR-6.15; DESIGN.md (setup hides navigation); S-12.
-- **Verification:** With a password-only session, `GET /api/stories` returns 401.
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: a password now creates a full session directly, so no partial state exists. Migration 020 drops the partial-session column. The ID is kept for traceability.
 
 **SC-063 — CSRF protection**
 - **Status:** ACTIVE
@@ -499,7 +477,7 @@ All retrieved 2026-11-13.
 **SC-064 — Server-side authorization on every handler**
 - **Status:** ACTIVE
 - **Rule:**
-  - Every route except login, TOTP, and reset MUST require an authenticated session.
+  - Every route except login and reset MUST require an authenticated session.
   - Admin routes MUST check the admin role in Identity.
   - Per-user settings MUST take the user ID from the session, never from the request.
   - Denials MUST return 403 or 404 without revealing whether the target exists.
@@ -533,7 +511,7 @@ All retrieved 2026-11-13.
 
 **SC-070 — Secrets never leave the server**
 - **Status:** ACTIVE
-- **Rule:** API responses, logs, and errors MUST NOT contain password hashes, TOTP secrets (after enrolment), webhook URLs, phone codes, reset tokens, session IDs, or provider credentials.
+- **Rule:** API responses, logs, and errors MUST NOT contain password hashes, webhook URLs, phone codes, reset tokens, session IDs, or provider credentials.
 - **Enforcement:** Domain-to-API mapping (DR-6); slog redaction (SC-080).
 - **Evidence:** NFR-3.3; ARCHITECTURE.md DR-6; S-27 (the webhook URL "contains a secret").
 - **Verification:** After saving a webhook, `GET` settings shows only "saved". A log grep for `hooks.slack.com` finds nothing.
@@ -541,7 +519,7 @@ All retrieved 2026-11-13.
 **SC-071 — Secrets at rest**
 - **Status:** ACTIVE
 - **Rule:**
-  - TOTP secrets and Slack webhook URLs MUST be encrypted in PostgreSQL with AES-256-GCM (Go `crypto/aes` + `crypto/cipher`). Each value MUST use a random 96-bit nonce, and the account ID MUST be bound as associated data.
+  - Slack webhook URLs MUST be encrypted in PostgreSQL with AES-256-GCM (Go `crypto/aes` + `crypto/cipher`). Each value MUST use a random 96-bit nonce, and the account ID MUST be bound as associated data.
   - The 256-bit data key, the SMTP app password, and the Twilio key secret MUST live in one `0600` secrets file outside the repository and outside the PostgreSQL data directory (SC-075).
   - Secrets MUST NOT be committed to the repository, passed on the command line, or placed in environment variables visible to other users.
   - The owner's disk SHOULD use full-disk encryption. *(delegated decision)*
@@ -549,7 +527,7 @@ All retrieved 2026-11-13.
 - **Evidence:** NFR-3.3; ARCHITECTURE.md TB-4; S-27 (webhook URL is a secret); S-29; S-18 V11, V14. The mechanism is a project decision.
 - **Verification:**
   - A `git log -p` secret scan is clean.
-  - A database dump shows no `hooks.slack.com` text and no base32 TOTP secrets.
+  - A database dump shows no `hooks.slack.com` text.
   - Copying a ciphertext to another account's row fails to decrypt.
 
 **SC-072 — Twilio credential scope**
@@ -613,7 +591,6 @@ All retrieved 2026-11-13.
 - **Rule:** The following MUST be logged with time, account ID, and outcome, without credentials:
   - login success and failure
   - lockout
-  - TOTP enrolment
   - password reset request and use
   - logout
   - authorization denials
