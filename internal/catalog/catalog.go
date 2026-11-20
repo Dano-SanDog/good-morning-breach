@@ -321,7 +321,7 @@ func blockedSource(name, address string) bool {
 	if err != nil {
 		return true
 	}
-	host := strings.ToLower(parsed.Hostname())
+	host := strings.TrimRight(strings.ToLower(parsed.Hostname()), ".")
 	for _, suffix := range blockedHostSuffixes {
 		if host == suffix || strings.HasSuffix(host, "."+suffix) {
 			return true
