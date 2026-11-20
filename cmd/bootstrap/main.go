@@ -78,6 +78,6 @@ func run() error {
 	if err := service.CreateInitialAdmin(ctx, email, string(passwordBytes)); err != nil {
 		return err
 	}
-	fmt.Println("Administrator created. On first sign-in, follow the prompt to enroll an authenticator app.")
+	fmt.Println("Administrator created. Sign in with this email address and password.")
 	return nil
 }

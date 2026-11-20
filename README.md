@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email and Slack alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. Story summaries and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email and Slack alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. The core workflows are built; story summaries, the content-rights gate, and the hardening items under "Remaining work" are not. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -107,7 +107,7 @@ This is a closed service. Every page needs a login, and there is no self sign-up
 
 ### Account administration
 
-Admins can create accounts with an initial password, change roles, disable or re-enable accounts, delete accounts, and review the 200 most recent administrator actions. New passwords must be at least 12 characters and pass the HIBP Pwned Passwords check; TOTP is required for new accounts by default. Administrators cannot disable, demote, or delete their own account, and the last enabled administrator cannot be removed. Disabling an account revokes its active sessions. An admin can reset another account's authenticator ("Reset authenticator" in the accounts table, `POST /api/admin/accounts/:id/reset-totp`, CSRF-protected): this clears the TOTP secret, ends that account's sessions, writes an audit row in the same transaction, and forces enrollment at the next sign-in. Admins cannot reset their own. There is no recovery path yet for the last admin who loses a device (SC-057 asks for a local CLI).
+Admins can create accounts with an initial password, change roles, disable or re-enable accounts, delete accounts, and review the 200 most recent administrator actions. New passwords must be at least 12 characters and pass the HIBP Pwned Passwords check; sign-in is password-only. Administrators cannot disable, demote, or delete their own account, and the last enabled administrator cannot be removed. Disabling an account revokes its active sessions. Changing an account's role also ends its sessions (SC-061). A lost password is recovered through the email reset link.
 
 ## Development
 
@@ -152,7 +152,7 @@ After migrations are applied and the client dependencies are installed:
 
 6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, CISA ICS/news/blog, FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks every 10 minutes, while respecting each feed's persisted poll interval.
 
-The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources migration 019 adds story retention deletes, admin authenticator reset auditing, and caps poll intervals at 24 hours; migration 022 adds per-channel alert state, Slack webhook storage, and the outbound message log; migration 023 added SMS phone storage (removed again by migration 024); migration 020 permanently drops the TOTP columns and deletes partial sessions (irreversible; run `go run ./cmd/migrate` before starting the updated server, since the old columns are gone) (migrations 001 to 024 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
+The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources migration 019 adds story retention deletes, an audit action later left unused, and caps poll intervals at 24 hours; migration 022 adds per-channel alert state, Slack webhook storage, and the outbound message log; migration 023 added SMS phone storage (removed again by migration 024); migration 020 permanently drops the TOTP columns and deletes partial sessions (irreversible; run `go run ./cmd/migrate` before starting the updated server, since the old columns are gone) (migrations 001 to 024 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
 ### Email setup (SMTP)
 
@@ -200,7 +200,7 @@ If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMT
 **Slack (no server configuration).** Each user creates an incoming webhook for their own workspace (Slack app settings, Incoming Webhooks, Add New Webhook to Workspace), then pastes it under "Alert preferences". The server creates its data key (`secrets` directory under the OS user configuration directory, mode `0600`) on first start.
 
 
-## SMS was dropped
+## SMS was dropped (history)
 
 Text message (SMS, Twilio) alerts and phone verification were built and then deliberately removed. Slack plus the Slack phone app covers mobile push, so no SMS provider, sender registration, or per-message cost is needed. The `GB_TWILIO_*`, `GB_SMS_DAILY_CAP`, and `GB_SMS_CODE_DAILY_CAP` settings no longer exist. Migration 024 drops the phone and SMS tables and columns; run `go run ./cmd/migrate` after updating.
 
@@ -218,11 +218,30 @@ Text message (SMS, Twilio) alerts and phone verification were built and then del
 - [x] Admin-editable categories and sources
 - [x] Add categorization and risk scoring (local semantic engine with keyword baseline fallback)
 - [x] MITRE ATT&CK mapping and email presentation (headline phrase and cue-based tags; shown on the dashboard and in email)
-- [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
-- [ ] Complete the dashboard (filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories are implemented; summaries and summary search remain)
-- [x] Add alert delivery (scheduled delivery with retries is implemented; email and Slack channels are implemented)
+- [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Email setup)
+- [x] Dashboard: filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories
+- [ ] Dashboard summaries and summary search (see Remaining work)
+- [x] Add alert delivery (scheduled delivery with retries; email and Slack channels)
+- [x] Retention job, password reset, admin audit log
 
 ### Remaining work
 
-- Story summaries and summary search, only where a source's content policy permits (FR-8.8, FR-8.9).
-- The single content-rights gate for every output path (SC-023) and the "all rights reserved" source type (FR-1.21).
+Reviewed 2026-11-20 against REQUIREMENTS.md, SECURITY.md, ARCHITECTURE.md, and DESIGN.md. In priority order:
+
+1. **Content-rights gate (FR-1.21, FR-8.8, FR-8.9, SC-023, DR-4).** Collection stores headlines and links only, so nothing is shown that a source forbids today, but the policy is not enforced in one place. Needed before any summary or excerpt is stored: one Source registry function for every output path, and the "all rights reserved" source type.
+2. **Story summaries and summary search (FR-4.12, FR-5.2, FR-5.5)**, only where the content rule permits (verbatim excerpt only for Securelist, per FR-8.9). Depends on item 1.
+3. **Attribution on every surface (FR-8.5, FR-8.11, FR-8.12).** Source notices are rendered only with the selected stories, so an empty alert carries none. HIBP credit and the SANS licence mark should be explicit per surface.
+4. **Migration safety.** The migrator does not refuse a database that is newer than the binary (`internal/store/postgres/migrate.go`). Add a fail-closed check.
+5. **Backup and restore.** No documented procedure for the single local PostgreSQL database and the data key (losing the key makes stored Slack webhooks unreadable). Document a schedule, protected storage, and a restore test.
+6. **Dashboard design gaps (DESIGN.md).** Times use the browser time zone, not the saved alert time zone; account deletion uses `window.prompt` instead of a dialog; no two-minute idle-timeout warning with "Stay signed in"; related-story links do not show the destination domain; no risk count bar.
+7. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
+8. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
+9. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
+
+**Known unverified:**
+- Slack: only tested against fake local servers and one real test message; message formatting, long titles, and rate limiting on a real workspace are unchecked.
+- Email: real SMTP was verified with iCloud only; Gmail and generic relay settings are untested; spam placement is unknown.
+- The 07:00 alert on a sleeping machine, the NFR-2.3 dashboard timing at one year of stories, and the NFR-2.2 delivery timing under load have not been measured.
+- Source terms that the research could not confirm are listed in [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
+
+**Out of scope by owner decision:** SMS, TOTP, and the excluded sources listed under Data Sources.
