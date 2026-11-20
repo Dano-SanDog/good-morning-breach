@@ -13,5 +13,5 @@ ALTER TABLE admin_audit_log
         'source_created', 'source_updated', 'source_deleted'
     ));
 
-UPDATE data_sources SET poll_interval_seconds = 3600, updated_at = clock_timestamp()
-    WHERE poll_interval_seconds > 3600
+UPDATE data_sources SET poll_interval_seconds = 86400, updated_at = clock_timestamp()
+    WHERE poll_interval_seconds > 86400

@@ -36,7 +36,7 @@ func invalid(format string, args ...any) error {
 const (
 	FallbackCategoryID    = "other"
 	MinPollIntervalSecond = 3600
-	MaxPollIntervalSecond = 3600 // FR-1.8: every enabled source is collected at least hourly
+	MaxPollIntervalSecond = 24 * 3600 // FR-1.8: hourly by default; up to a day only where a source's terms set a lower rate (CERT-EU)
 )
 
 type Category struct {
