@@ -92,7 +92,7 @@ INSERT INTO data_sources (
         'https://haveibeenpwned.com/api/v3/breaches',
         'Creative Commons Attribution 4.0 International (CC BY 4.0)',
         'https://haveibeenpwned.com/API/v3#License',
-        'Reuse under CC BY 4.0 with attribution and a link to haveibeenpwned.com on every surface. The unauthenticated breach catalog needs no key. This collector stores only a headline built from the breach name and account count, for breaches added in the last 30 days; fabricated breaches and spam lists are skipped.',
+        'Reuse under CC BY 4.0 with attribution and a link to haveibeenpwned.com on every surface. The unauthenticated breach catalog needs no key. This collector stores only a headline built from the breach name and account count, for breaches added in the last 30 days, fabricated breaches and spam lists are skipped.',
         'Source: Have I Been Pwned (https://haveibeenpwned.com), CC BY 4.0. Headline built from the breach name and account count.',
         'headline_link', 3600, true, 'hibp_breaches_json'
     ),
@@ -100,7 +100,7 @@ INSERT INTO data_sources (
         'hacker-news',
         'Hacker News',
         'https://hacker-news.firebaseio.com/v0/topstories.json',
-        'Hacker News API (no content license; API repository is MIT licensed)',
+        'Hacker News API (no content license, API repository is MIT licensed)',
         'https://github.com/HackerNews/API',
         'Titles and links only, no comments or text. This collector reads the top 100 stories once per hour and keeps only titles that match security keywords.',
         'Via Hacker News (https://news.ycombinator.com). Title and link only.',

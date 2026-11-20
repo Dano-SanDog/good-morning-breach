@@ -61,6 +61,8 @@ type AdminAuditRecord struct {
 	ID              int64     `json:"id"`
 	ActorAccountID  int64     `json:"actorAccountId"`
 	TargetAccountID int64     `json:"targetAccountId"`
+	TargetKind      string    `json:"targetKind"`
+	TargetID        string    `json:"targetId"`
 	Action          string    `json:"action"`
 	Details         string    `json:"details"`
 	CreatedAt       time.Time `json:"createdAt"`

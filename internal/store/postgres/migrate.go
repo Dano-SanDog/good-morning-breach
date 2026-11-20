@@ -55,6 +55,12 @@ var ncscCCCSSecurelistMigration string
 //go:embed migrations/015_json_sources.sql
 var jsonSourcesMigration string
 
+//go:embed migrations/016_threat_news_sources.sql
+var threatNewsSourcesMigration string
+
+//go:embed migrations/017_catalog_administration.sql
+var catalogAdministrationMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -78,6 +84,8 @@ var migrations = []migration{
 	{version: 13, sql: passwordResetMigration},
 	{version: 14, sql: ncscCCCSSecurelistMigration},
 	{version: 15, sql: jsonSourcesMigration},
+	{version: 16, sql: threatNewsSourcesMigration},
+	{version: 17, sql: catalogAdministrationMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

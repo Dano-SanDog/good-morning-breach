@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import "./styles.css";
 import logo from "../logo.svg";
+import { CatalogAdmin } from "./CatalogAdmin";
 
 type User = { email: string; role: "admin" | "user" };
 type ManagedAccount = {
@@ -15,7 +16,9 @@ type ManagedAccount = {
 type AdminAuditRecord = {
   id: number;
   actorAccountId: number;
-  targetAccountId: number;
+  targetAccountId: number | null;
+  targetKind: string;
+  targetId: string;
   action: string;
   details: string;
   createdAt: string;
@@ -256,7 +259,9 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
       !isRecord(item) ||
       typeof item.id !== "number" ||
       typeof item.actorAccountId !== "number" ||
-      typeof item.targetAccountId !== "number" ||
+      (item.targetAccountId !== null && typeof item.targetAccountId !== "number") ||
+      (item.targetKind !== undefined && typeof item.targetKind !== "string") ||
+      (item.targetId !== undefined && typeof item.targetId !== "string") ||
       typeof item.action !== "string" ||
       typeof item.details !== "string" ||
       typeof item.createdAt !== "string"
@@ -267,6 +272,8 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
       id: item.id,
       actorAccountId: item.actorAccountId,
       targetAccountId: item.targetAccountId,
+      targetKind: typeof item.targetKind === "string" ? item.targetKind : "",
+      targetId: typeof item.targetId === "string" ? item.targetId : "",
       action: item.action,
       details: item.details,
       createdAt: item.createdAt,
@@ -1139,7 +1146,7 @@ export function App() {
                 {adminAudit.map((record) => (
                   <li key={record.id}>
                     <strong>{record.action.replaceAll("_", " ")}</strong>
-                    <span>Actor #{record.actorAccountId}, target #{record.targetAccountId}</span>
+                    <span>Actor #{record.actorAccountId}, target {record.targetKind && record.targetId ? `${record.targetKind} ${record.targetId}` : `#${record.targetAccountId ?? "none"}`}</span>
                     <time dateTime={record.createdAt}>{new Date(record.createdAt).toLocaleString()}</time>
                     <code>{record.details}</code>
                   </li>
@@ -1148,6 +1155,7 @@ export function App() {
             )}
           </section>
         )}
+        {user?.role === "admin" && <CatalogAdmin onChanged={() => void loadSourceStatuses().catch(() => undefined)} />}
         <details className="story-filters">
           <summary>Filter stories</summary>
           <form onSubmit={(event) => { event.preventDefault(); void applyStoryFilters(filterDraft, 0); }}>

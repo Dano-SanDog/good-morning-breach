@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Dano-SanDog/good-morning-breach/internal/catalog"
 	"log/slog"
 	"net/http"
 	"os"
@@ -110,11 +111,15 @@ func run() error {
 	} else {
 		slog.Warn("GB_SMTP_HOST and GB_DEV_MAIL_DIR are not set; password reset is disabled", "event", "password_reset", "outcome", "disabled")
 	}
+	catalogService, err := catalog.NewService(postgres.NewCatalogStore(pool), identityService)
+	if err != nil {
+		return fmt.Errorf("configure catalog administration: %w", err)
+	}
 	assets, err := httpserver.EmbeddedAssets()
 	if err != nil {
 		return fmt.Errorf("load client assets; run npm run build first: %w", err)
 	}
-	server, err := httpserver.NewApplication(identityService, assets)
+	server, err := httpserver.NewApplication(identityService, assets, catalogService)
 	if err != nil {
 		return fmt.Errorf("configure HTTPS server: %w", err)
 	}

@@ -234,6 +234,11 @@ func ValidateAlertSettings(settings AlertSettings) error {
 	return nil
 }
 
+// RequireAdmin authorizes an administrator session for other domain services.
+func (s *Service) RequireAdmin(ctx context.Context, token string) (AuthenticatedUser, error) {
+	return s.requireAdmin(ctx, token)
+}
+
 func (s *Service) requireAdmin(ctx context.Context, token string) (AuthenticatedUser, error) {
 	user, err := s.CurrentUser(ctx, token)
 	if err != nil {
