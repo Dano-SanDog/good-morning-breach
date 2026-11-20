@@ -79,6 +79,9 @@ var alertChannelsMigration string
 //go:embed migrations/023_sms_alerts.sql
 var smsAlertsMigration string
 
+//go:embed migrations/024_remove_sms.sql
+var removeSMSMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -110,6 +113,7 @@ var migrations = []migration{
 	{version: 21, sql: cccsAtomFeedsMigration},
 	{version: 22, sql: alertChannelsMigration},
 	{version: 23, sql: smsAlertsMigration},
+	{version: 24, sql: removeSMSMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

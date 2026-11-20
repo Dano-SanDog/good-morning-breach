@@ -14,7 +14,7 @@ This file owns the secure-coding rules. `REQUIREMENTS.md` owns WHAT the system d
 - Go 1.27.x (`net/http`, `crypto/*`, `html/template`, `log/slog`, `net/smtp`); Gin v1.12.x
 - PostgreSQL 18.x via `github.com/jackc/pgx/v5` v5.13.0; RSS parsing via `github.com/mmcdole/gofeed` v1.5.0; password hashing via `golang.org/x/crypto` v0.59.0; hidden terminal input via `golang.org/x/term` v0.48.0
 - React + React DOM 19.3.x; TypeScript 7.0.x; Vite 8.3.x; Node.js 26.x LTS (build machine only); npm; Vitest
-- Outbound: SMTP (owner's mail account, provider UNKNOWN), Twilio Programmable Messaging REST API 2010-04-01, Slack incoming webhooks, HIBP Pwned Passwords range API v3, collection sources (FR-1.14), MITRE ATT&CK STIX bundle (data file)
+- Outbound: SMTP (owner's mail account, provider UNKNOWN), Slack incoming webhooks, HIBP Pwned Passwords range API v3, collection sources (FR-1.14), MITRE ATT&CK STIX bundle (data file)
 - Deployment: one machine, server on localhost only with a local TLS certificate, one Go process, local PostgreSQL (AQ-1, AQ-2)
 
 Rules for PROPOSED components apply only while those components stay in the stack.
@@ -27,7 +27,7 @@ Rules for PROPOSED components apply only while those components stay in the stac
 - *Prototype pollution:* applies only to the React client, which handles untrusted keys such as category and source names. Go server: not applicable, because Go structs and maps have no prototype chain. Node at runtime: not applicable.
 - *Unsafe code execution:* applicable. This covers `dangerouslySetInnerHTML`, `eval`, `text/template` for HTML, Go `unsafe`, `os/exec`, and `reflect`-driven deserialization.
 - *File uploads, OAuth/OIDC, JWT/self-contained tokens, WebRTC, public APIs, CORS for third parties:* not applicable. No requirement includes them, and the design uses server-side sessions.
-- *Inbound webhooks (Twilio or Slack signatures):* not applicable. ARCHITECTURE.md says there are no inbound connections from outside the machine.
+- *Inbound webhooks (Slack signatures):* not applicable. ARCHITECTURE.md says there are no inbound connections from outside the machine.
 - *LLM or AI-specific controls:* not applicable. The Analyzer uses local rules only (AQ-3).
 
 **Gaps and conflicts:**
@@ -36,7 +36,6 @@ Rules for PROPOSED components apply only while those components stay in the stac
   - absolute session timeout (FR-6.10 sets only an idle timeout): SC-061
   - secrets at rest: SC-071
   - local TLS certificate and HSTS: SC-002, SC-007
-  - phone verification code limits (FR-4.15): SC-056
   - rate limits on messages the system sends: SC-058
   - application log retention: SC-083
   - version pinning policy for PROPOSED packages: SC-091
@@ -45,7 +44,8 @@ Rules for PROPOSED components apply only while those components stay in the stac
   - whether React 19 blocks `javascript:` URLs (SC-041 enforces the scheme itself)
   - the TypeScript 7 `strict` default (SC-044 sets it explicitly)
   - Gin's default trusted-proxy behaviour (SC-006 sets it explicitly)
-  - Twilio STOP handling
+
+- **SMS dropped:** text message alerts and phone verification were deliberately removed (migration 024). Slack plus the Slack phone app covers mobile push. SC-014, SC-056, and SC-072 are withdrawn and the Twilio source (former S-29) was removed.
 
 ## Sources
 
@@ -79,7 +79,6 @@ All retrieved 2026-11-13.
 - **S-26 HIBP API v3**: https://haveibeenpwned.com/API/v3, "Searching by range" (`api.pwnedpasswords.com/range/{prefix}`, `Add-Padding`). Supports: Identity.
 - **S-27 Slack incoming webhooks**: https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks, URL format and "contains a secret". Supports: Slack adapter.
 - **S-28 Slack formatting**: https://docs.slack.dev/messaging/formatting-message-text, escaping `&`, `<`, and `>`. Supports: Slack adapter.
-- **S-29 Twilio API keys**: https://www.twilio.com/docs/iam/api-keys, key types (Main, Standard, Restricted) and per-subsystem keys. Supports: SMS adapter.
 
 ## Secure-Coding Rules
 
@@ -190,12 +189,9 @@ All retrieved 2026-11-13.
 - **Evidence:** FR-4.16; S-27 (URL format). The host allowlist is a project decision; GovSlack is excluded.
 - **Verification:** `https://hooks.slack.com.evil.example/services/x`, `http://hooks.slack.com/services/x`, and `https://hooks.slack.com@10.0.0.1/services/x` are each rejected. A valid URL is accepted.
 
-**SC-014 — Phone number validation**
-- **Status:** ACTIVE
-- **Rule:** Phone numbers MUST be stored in E.164 form, checked against `^\+[1-9][0-9]{1,14}$`. Anything else MUST be rejected.
-- **Enforcement:** Alerting domain.
-- **Evidence:** FR-4.3, FR-4.15; S-18 V2. The format is a project decision.
-- **Verification:** `5551234`, `+0123`, and `+1 555 123` are rejected. `+15551234567` is accepted.
+**SC-014 — Phone number validation (withdrawn)**
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: SMS alerts were deliberately dropped (Slack plus the Slack phone app covers mobile push), so there is no phone data or Twilio. The ID is kept for traceability.
 
 **SC-015 — Admin source records**
 - **Status:** ACTIVE
@@ -208,7 +204,7 @@ All retrieved 2026-11-13.
 
 **SC-020 — Outbound request guard (SSRF)**
 - **Status:** ACTIVE
-- **Rule:** The Collector and the Slack, Twilio, HIBP, and MITRE clients MUST share one `http.Client` with these protections:
+- **Rule:** The Collector and the Slack, HIBP, and MITRE clients MUST share one `http.Client` with these protections:
   - a `net.Dialer` `Control` hook that rejects loopback, private, link-local, unique-local, multicast, unspecified, and IPv4-mapped forms of those addresses, at connect time
   - an overall `Timeout`
   - `CheckRedirect` that returns an error, so redirects are not followed
@@ -241,7 +237,7 @@ All retrieved 2026-11-13.
 
 **SC-023 — Content rights single gate**
 - **Status:** ACTIVE
-- **Rule:** Every output path (API story responses, email, Slack, SMS) MUST get the displayable fields of a story from the single Source registry function. No other code path MAY read stored excerpt text for output.
+- **Rule:** Every output path (API story responses, email, Slack) MUST get the displayable fields of a story from the single Source registry function. No other code path MAY read stored excerpt text for output.
 - **Enforcement:** Source registry (DR-4).
 - **Evidence:** FR-8.8, FR-8.9, FR-1.21; ARCHITECTURE.md DR-4. This is a project decision, not a public-source control.
 - **Verification:** For a "headline and link only" source, the API, email, and Slack outputs contain no excerpt.
@@ -325,7 +321,7 @@ All retrieved 2026-11-13.
 - **Enforcement:** `vite.config.ts`; review.
 - **Evidence:** S-20, S-21, S-22.
 - **Verification:**
-  - The built bundle contains no Twilio SID, SMTP password, or `.env` value (grep).
+  - The built bundle contains no SMTP password, or `.env` value (grep).
   - `dist/` contains no `.map` files.
   - The config test asserts host and cors.
 
@@ -402,19 +398,9 @@ All retrieved 2026-11-13.
   - A token used at minute 31 fails.
   - A session open before the reset is rejected afterwards.
 
-**SC-056 — Phone verification codes**
-- **Status:** ACTIVE
-- **Rule:**
-  - Codes MUST be 6 digits from `crypto/rand` and MUST be stored only as a hash.
-  - They MUST be compared in constant time and MUST expire after 10 minutes.
-  - A code MUST be invalidated after 5 wrong entries.
-  - A new code MUST invalidate the previous one. *(delegated decision)*
-- **Enforcement:** Alerting domain.
-- **Evidence:** FR-4.15; S-04. The limits are project decisions.
-- **Verification:**
-  - A correct code entered at minute 11 fails.
-  - A correct code entered after 5 wrong entries fails.
-  - The first code fails after a second code is sent.
+**SC-056 — Phone verification codes (withdrawn)**
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: SMS alerts were deliberately dropped (Slack plus the Slack phone app covers mobile push), so there is no phone data or Twilio. The ID is kept for traceability.
 
 **SC-057 — TOTP loss and recovery**
 - **Status:** WITHDRAWN
@@ -424,12 +410,11 @@ All retrieved 2026-11-13.
 - **Status:** ACTIVE
 - **Rule:** Per account and per rolling hour, the system MUST allow at most:
   - 3 password-reset emails
-  - 3 phone-code SMS
   - 5 Slack test sends
   
   Over-limit reset requests MUST still return the same generic response (SC-055) and MUST NOT send. *(delegated decision)*
 - **Enforcement:** Identity and Alerting domain, with counts stored in PostgreSQL.
-- **Evidence:** FR-4.15, FR-4.17, FR-6.9; S-18 V2. The limits are project decisions.
+- **Evidence:** FR-4.17, FR-6.9; S-18 V2. The limits are project decisions.
 - **Verification:** The fourth reset request in an hour returns the generic response, and the mock SMTP server receives no fourth email.
 
 ### Sessions, CSRF, and authorization
@@ -491,7 +476,7 @@ All retrieved 2026-11-13.
 - **Status:** ACTIVE
 - **Rule:**
   - Identity MUST refuse removing the role from, or disabling, the last active admin.
-  - Account deletion MUST remove the email, phone, and webhook in the same transaction.
+  - Account deletion MUST remove the email and webhook in the same transaction.
   - Each admin action MUST write an append-only audit row in the same transaction.
 - **Enforcement:** Identity; Audit log.
 - **Evidence:** FR-9.3, FR-9.5, FR-9.6; ARCHITECTURE.md (append-only audit). This is a project decision.
@@ -511,7 +496,7 @@ All retrieved 2026-11-13.
 
 **SC-070 — Secrets never leave the server**
 - **Status:** ACTIVE
-- **Rule:** API responses, logs, and errors MUST NOT contain password hashes, webhook URLs, phone codes, reset tokens, session IDs, or provider credentials.
+- **Rule:** API responses, logs, and errors MUST NOT contain password hashes, webhook URLs, reset tokens, session IDs, or provider credentials.
 - **Enforcement:** Domain-to-API mapping (DR-6); slog redaction (SC-080).
 - **Evidence:** NFR-3.3; ARCHITECTURE.md DR-6; S-27 (the webhook URL "contains a secret").
 - **Verification:** After saving a webhook, `GET` settings shows only "saved". A log grep for `hooks.slack.com` finds nothing.
@@ -520,22 +505,19 @@ All retrieved 2026-11-13.
 - **Status:** ACTIVE
 - **Rule:**
   - Slack webhook URLs MUST be encrypted in PostgreSQL with AES-256-GCM (Go `crypto/aes` + `crypto/cipher`). Each value MUST use a random 96-bit nonce, and the account ID MUST be bound as associated data.
-  - The 256-bit data key, the SMTP app password, and the Twilio key secret MUST live in one `0600` secrets file outside the repository and outside the PostgreSQL data directory (SC-075).
+  - The 256-bit data key and the SMTP app password MUST live in one `0600` secrets file outside the repository and outside the PostgreSQL data directory (SC-075).
   - Secrets MUST NOT be committed to the repository, passed on the command line, or placed in environment variables visible to other users.
   - The owner's disk SHOULD use full-disk encryption. *(delegated decision)*
 - **Enforcement:** Identity and Alerting (field encryption); startup secrets loader.
-- **Evidence:** NFR-3.3; ARCHITECTURE.md TB-4; S-27 (webhook URL is a secret); S-29; S-18 V11, V14. The mechanism is a project decision.
+- **Evidence:** NFR-3.3; ARCHITECTURE.md TB-4; S-27 (webhook URL is a secret); S-18 V11, V14. The mechanism is a project decision.
 - **Verification:**
   - A `git log -p` secret scan is clean.
   - A database dump shows no `hooks.slack.com` text.
   - Copying a ciphertext to another account's row fails to decrypt.
 
-**SC-072 — Twilio credential scope**
-- **Status:** ACTIVE
-- **Rule:** The SMS adapter MUST authenticate with a Twilio Standard or Restricted API key, not the Account SID with the Auth Token and not a Main key.
-- **Enforcement:** SMS adapter configuration.
-- **Evidence:** S-29 (API keys preferred; key types).
-- **Verification:** The configured credential's SID starts with `SK`, and the key type in the Twilio console is not Main.
+**SC-072 — Twilio credential scope (withdrawn)**
+- **Status:** WITHDRAWN
+- **Rule:** Withdrawn by owner decision: SMS alerts were deliberately dropped (Slack plus the Slack phone app covers mobile push), so there is no phone data or Twilio. The ID is kept for traceability.
 
 **SC-073 — PostgreSQL access**
 - **Status:** ACTIVE
@@ -583,7 +565,7 @@ All retrieved 2026-11-13.
 - **Enforcement:** Logging setup; all components.
 - **Evidence:** ARCHITECTURE.md (`log/slog`); S-18 V16. JSON output and LogValuer redaction are project decisions; the slog documentation was not separately fetched.
 - **Verification:**
-  - Logging an account struct shows `"[redacted]"` for phone and webhook.
+  - Logging an account struct shows `"[redacted]"` for the webhook.
   - A source error containing `\n{"level":"ERROR"}` appears as one escaped value.
 
 **SC-081 — Security events logged**

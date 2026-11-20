@@ -195,12 +195,8 @@ test("catalog admin renders without markup injection", () => {
 });
 
 test("validates channel settings received from the server", () => {
-  const good = {
-    emailEnabled: true, slackEnabled: false, smsEnabled: false, slackWebhookSaved: true,
-    smsAvailable: true, phoneMasked: "", phoneVerified: false, pendingPhoneMasked: "",
-  };
+  const good = { emailEnabled: true, slackEnabled: false, slackWebhookSaved: true };
   expect(parseChannelView(good)).toEqual(good);
   expect(parseChannelView({ ...good, slackWebhookSaved: "yes" })).toBeNull();
-  expect(parseChannelView({ ...good, phoneMasked: 5 })).toBeNull();
   expect(parseChannelView(null)).toBeNull();
 });

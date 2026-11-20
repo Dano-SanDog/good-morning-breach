@@ -142,21 +142,7 @@ func run() error {
 	if sender != nil {
 		channels = append(channels, alerting.NewEmailChannel(sender))
 	}
-	var twilioClient *alerting.TwilioClient
-	twilioConfig, twilioConfigured, err := alerting.LoadTwilioConfig()
-	if err != nil {
-		return fmt.Errorf("configure Twilio: %w", err)
-	}
-	if twilioConfigured {
-		twilioClient, err = alerting.NewTwilioClient(twilioConfig, channelClient)
-		if err != nil {
-			return fmt.Errorf("configure Twilio: %w", err)
-		}
-		channels = append(channels, alerting.NewSMSChannel(twilioClient, alertStore))
-	} else {
-		slog.Warn("GB_TWILIO_* is not set; text message alerts are unavailable", "event", "sms", "outcome", "disabled")
-	}
-	contactService, err := alerting.NewContactService(alertStore, secretBox, slackChannel, twilioClient)
+	contactService, err := alerting.NewContactService(alertStore, secretBox, slackChannel)
 	if err != nil {
 		return fmt.Errorf("configure alert channels: %w", err)
 	}
