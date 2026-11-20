@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, saved alert preferences, scheduled email alerts, password reset by email, and admin-editable categories and data sources. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Text message and Slack delivery, semantic analysis, summaries, ATT&CK tags and fuller story detail in email alerts, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, saved alert preferences, scheduled email alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. Text message and Slack delivery, story summaries, automatic story retention, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -46,12 +46,15 @@ The migrations seed 24 sources (migrations 001 to 016), all enabled by default: 
 
 **Password reset.** With SMTP configured, the sign-in page offers "Forgot password?". The emailed link (`https://localhost:8443/#reset=…`, token in the fragment) is single use and expires in 30 minutes; the request always gets the same reply, and at most 3 emails per account per hour are sent. A successful reset ends all of the account's sessions; TOTP is still required at sign-in. Apply migration 013 after updating. Without SMTP, password reset is disabled: requests get the usual reply but no message is sent, and the server logs a warning at startup. **Local development only:** set `GB_DEV_MAIL_DIR` to an absolute path (created with mode `0700`) and leave `GB_SMTP_HOST` unset; each reset message is then written to a private `0600` file in that directory instead of being emailed (open the newest file to get the link). SMTP always takes precedence, and the message contents are never logged.
 
-The planned alert behavior is:
+Implemented alert behavior (email):
 - Default: 07:00 in each user's time zone, every day. Each user can change the time, time zone, and days, or stop the alert.
-- Channels, chosen per user: **Email**, **Text (SMS)**, **Slack** (user-supplied incoming webhook).
-- Contains stories collected since the last alert at or above the user's minimum risk level (default Medium), highest risk first.
-- Email and Slack: up to 10 stories. SMS: up to 3 titles and a dashboard link.
-- Phone numbers are verified by code. Slack webhooks get a test message. Failed deliveries are retried up to 3 times.
+- Contains stories collected since the last alert at or above the user's minimum risk level (default Medium), highest risk first, up to 10.
+- Failed deliveries are retried up to 3 times.
+
+Planned alert behavior (not yet built):
+- Per-user channel choice, adding **Text (SMS)** and **Slack** (user-supplied incoming webhook) to email.
+- SMS: up to 3 titles with risk and a dashboard link; Slack: up to 10 stories.
+- Phone numbers verified by code; Slack webhooks get a test message.
 
 ### Dashboard
 - Shows the last 24 hours by default, sorted by risk.
@@ -72,7 +75,7 @@ One or more categories per story. Starting list: Vulnerability, Exploited Vulner
 The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. A local semantic engine adds cue-based techniques (for example phishing, ransomware, brute force) validated against the bundle, extracts CVE identifiers, and groups stories that share a CVE as related. It uses only headlines and source-format hints, never article text, and falls back to the baseline analyzer. ATT&CK tags and CVE IDs are included in email alerts.
 
 ### Data Retention
-Stories are kept for 365 days. Alert delivery records are kept for 90 days.
+Alert delivery records are deleted after 90 days. Stories are meant to be kept for 365 days; the automatic story deletion job is not built yet.
 
 ## Design
 
@@ -163,7 +166,14 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Add the approved launch sources (24 seeded sources; see Data Sources)
 - [x] Admin-editable categories and sources
 - [x] Add categorization and risk scoring (local semantic engine with keyword baseline fallback)
-- [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
+- [x] MITRE ATT&CK mapping and email presentation (headline phrase and cue-based tags; shown on the dashboard and in email)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
-- [ ] Complete the dashboard (filters, admin source status, footer notices, and catalog administration are implemented; semantic analysis, summaries, and summary search remain)
+- [ ] Complete the dashboard (filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories are implemented; summaries and summary search remain)
 - [ ] Add alert delivery (scheduled email delivery with retries is implemented; SMS and Slack remain)
+
+### Remaining work
+
+- Text message (SMS) and Slack alert channels, with per-user channel selection, phone verification, and Slack webhook test (FR-4.3, FR-4.4, FR-4.7, FR-4.15 to FR-4.17).
+- Automatic deletion of stories after 365 days (FR-10.1); delivery records are already pruned at 90 days.
+- Story summaries and summary search, only where a source's content policy permits (FR-8.8, FR-8.9).
+- The single content-rights gate for every output path (SC-023) and the "all rights reserved" source type (FR-1.21).
