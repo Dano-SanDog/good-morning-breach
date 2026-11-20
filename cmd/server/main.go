@@ -96,6 +96,13 @@ func run() error {
 		if err != nil {
 			return fmt.Errorf("configure SMTP: %w", err)
 		}
+		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 30*time.Second)
+		verifyErr := smtpSender.Verify(verifyCtx)
+		cancelVerify()
+		if verifyErr != nil {
+			return fmt.Errorf("verify SMTP configuration (run go run ./cmd/smtptest to diagnose): %w", verifyErr)
+		}
+		slog.Info("SMTP server verified", "event", "smtp_verify", "outcome", "success", "smtp", smtpConfig)
 		sender = smtpSender
 		identityService.EnablePasswordReset(identityStore, smtpSender, "https://localhost:8443")
 	} else if devMailDir := os.Getenv("GB_DEV_MAIL_DIR"); devMailDir != "" {

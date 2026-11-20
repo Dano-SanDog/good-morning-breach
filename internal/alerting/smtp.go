@@ -5,10 +5,12 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -28,9 +30,44 @@ type SMTPConfig struct {
 	Username string
 	Password string
 	From     string
+	// TLSMode is "starttls" or "implicit". Empty means implicit on port 465, otherwise starttls.
+	TLSMode string
 }
 
-// LoadSMTPConfig reads GB_SMTP_HOST, GB_SMTP_PORT (default 587), GB_SMTP_USERNAME,
+const (
+	TLSModeSTARTTLS = "starttls"
+	TLSModeImplicit = "implicit"
+)
+
+func (c SMTPConfig) implicitTLS() bool {
+	switch c.TLSMode {
+	case TLSModeImplicit:
+		return true
+	case TLSModeSTARTTLS:
+		return false
+	}
+	return c.Port == 465
+}
+
+// LogValue keeps the password and username out of logs (SC-080).
+func (c SMTPConfig) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("host", c.Host),
+		slog.Int("port", c.Port),
+		slog.Bool("implicit_tls", c.implicitTLS()),
+		slog.String("password", "[redacted]"),
+	)
+}
+
+func (c SMTPConfig) String() string {
+	return fmt.Sprintf("SMTP %s:%d (implicit TLS: %t)", c.Host, c.Port, c.implicitTLS())
+}
+
+// GoString prevents %#v from printing the password.
+func (c SMTPConfig) GoString() string { return c.String() }
+
+// LoadSMTPConfig reads GB_SMTP_HOST, GB_SMTP_PORT (default 587), GB_SMTP_TLS
+// (starttls or implicit; default implicit on 465, otherwise starttls), GB_SMTP_USERNAME,
 // GB_SMTP_FROM, and GB_SMTP_PASSWORD_FILE (a 0600 file, per SC-071). It returns
 // false when GB_SMTP_HOST is unset.
 func LoadSMTPConfig() (SMTPConfig, bool, error) {
@@ -51,6 +88,17 @@ func LoadSMTPConfig() (SMTPConfig, bool, error) {
 		}
 		config.Port = port
 	}
+	switch mode := strings.ToLower(os.Getenv("GB_SMTP_TLS")); mode {
+	case "":
+		config.TLSMode = TLSModeSTARTTLS
+		if config.Port == 465 {
+			config.TLSMode = TLSModeImplicit
+		}
+	case TLSModeSTARTTLS, TLSModeImplicit:
+		config.TLSMode = mode
+	default:
+		return SMTPConfig{}, false, errors.New("GB_SMTP_TLS must be starttls or implicit")
+	}
 	if config.From == "" {
 		config.From = config.Username
 	}
@@ -67,6 +115,9 @@ func LoadSMTPConfig() (SMTPConfig, bool, error) {
 			return SMTPConfig{}, false, fmt.Errorf("read SMTP password file: %w", err)
 		}
 		config.Password = strings.TrimRight(string(data), "\r\n")
+		if config.Password == "" {
+			return SMTPConfig{}, false, errors.New("SMTP password file is empty")
+		}
 	}
 	if err := config.validate(); err != nil {
 		return SMTPConfig{}, false, err
@@ -75,17 +126,23 @@ func LoadSMTPConfig() (SMTPConfig, bool, error) {
 }
 
 func (c SMTPConfig) validate() error {
-	if c.Host == "" || strings.ContainsAny(c.Host, "\r\n ") {
-		return errors.New("SMTP host is invalid")
+	if c.Host == "" || strings.ContainsAny(c.Host, "\r\n \t:/@") {
+		return errors.New("GB_SMTP_HOST must be a bare host name (no scheme, port, or path)")
+	}
+	if c.Port < 1 || c.Port > 65535 {
+		return errors.New("GB_SMTP_PORT is invalid")
+	}
+	if c.TLSMode != "" && c.TLSMode != TLSModeSTARTTLS && c.TLSMode != TLSModeImplicit {
+		return errors.New("GB_SMTP_TLS must be starttls or implicit")
 	}
 	if _, err := parseAddress(c.From); err != nil {
-		return errors.New("GB_SMTP_FROM must be a valid email address")
+		return errors.New("GB_SMTP_FROM must be a valid email address (required when GB_SMTP_USERNAME is not an email address)")
 	}
 	if c.Username != "" && c.Password == "" {
 		return errors.New("GB_SMTP_PASSWORD_FILE is required with GB_SMTP_USERNAME")
 	}
-	if strings.ContainsAny(c.Username, "\r\n") {
-		return errors.New("SMTP username is invalid")
+	if strings.ContainsAny(c.Username, "\r\n\x00") || strings.ContainsAny(c.Password, "\r\n\x00") {
+		return errors.New("SMTP credentials contain invalid characters")
 	}
 	return nil
 }
@@ -93,6 +150,7 @@ func (c SMTPConfig) validate() error {
 // SMTPSender sends over implicit TLS (port 465) or mandatory STARTTLS, never plaintext (SC-033).
 type SMTPSender struct {
 	config SMTPConfig
+	roots  *x509.CertPool // nil uses the system roots; set only by tests
 }
 
 func NewSMTPSender(config SMTPConfig) (*SMTPSender, error) {
@@ -119,6 +177,66 @@ func parseAddress(value string) (string, error) {
 	return address.Address, nil
 }
 
+// connect opens a TLS-protected, authenticated SMTP session. It never sends mail.
+func (s *SMTPSender) connect(ctx context.Context) (*smtp.Client, error) {
+	address := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.config.Host, RootCAs: s.roots}
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	implicit := s.config.implicitTLS()
+	var conn net.Conn
+	var err error
+	if implicit {
+		conn, err = (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(ctx, "tcp", address)
+	} else {
+		conn, err = dialer.DialContext(ctx, "tcp", address)
+	}
+	if err != nil {
+		hint := ""
+		if implicit {
+			hint = " (implicit TLS is selected; if this port expects STARTTLS, set GB_SMTP_TLS=starttls)"
+		}
+		return nil, fmt.Errorf("connect to SMTP server: %w%s", err, hint)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = conn.SetDeadline(deadline)
+	client, err := smtp.NewClient(conn, s.config.Host)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("start SMTP session (if this port uses STARTTLS, set GB_SMTP_TLS=starttls): %w", err)
+	}
+	if !implicit {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			_ = client.Close()
+			return nil, errors.New("SMTP server does not offer STARTTLS")
+		}
+		if err := client.StartTLS(tlsConfig); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("start SMTP TLS: %w", err)
+		}
+	}
+	if s.config.Username != "" {
+		auth := smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
+		if err := client.Auth(auth); err != nil {
+			_ = client.Close()
+			return nil, fmt.Errorf("authenticate to SMTP server: %w", err)
+		}
+	}
+	return client, nil
+}
+
+// Verify connects, negotiates TLS, and authenticates, then quits without sending mail.
+func (s *SMTPSender) Verify(ctx context.Context) error {
+	client, err := s.connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	return client.Quit()
+}
+
 func (s *SMTPSender) Send(ctx context.Context, to string, message Message) error {
 	from, err := parseAddress(s.config.From)
 	if err != nil {
@@ -136,42 +254,11 @@ func (s *SMTPSender) Send(ctx context.Context, to string, message Message) error
 		return err
 	}
 
-	address := net.JoinHostPort(s.config.Host, strconv.Itoa(s.config.Port))
-	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.config.Host}
-	dialer := &net.Dialer{Timeout: 15 * time.Second}
-	var conn net.Conn
-	if s.config.Port == 465 {
-		conn, err = (&tls.Dialer{NetDialer: dialer, Config: tlsConfig}).DialContext(ctx, "tcp", address)
-	} else {
-		conn, err = dialer.DialContext(ctx, "tcp", address)
-	}
+	client, err := s.connect(ctx)
 	if err != nil {
-		return fmt.Errorf("connect to SMTP server: %w", err)
-	}
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetDeadline(deadline)
-	}
-	client, err := smtp.NewClient(conn, s.config.Host)
-	if err != nil {
-		_ = conn.Close()
-		return fmt.Errorf("start SMTP session: %w", err)
+		return err
 	}
 	defer client.Close()
-
-	if s.config.Port != 465 {
-		if ok, _ := client.Extension("STARTTLS"); !ok {
-			return errors.New("SMTP server does not offer STARTTLS")
-		}
-		if err := client.StartTLS(tlsConfig); err != nil {
-			return fmt.Errorf("start SMTP TLS: %w", err)
-		}
-	}
-	if s.config.Username != "" {
-		auth := smtp.PlainAuth("", s.config.Username, s.config.Password, s.config.Host)
-		if err := client.Auth(auth); err != nil {
-			return fmt.Errorf("authenticate to SMTP server: %w", err)
-		}
-	}
 	if err := client.Mail(from); err != nil {
 		return fmt.Errorf("SMTP sender rejected: %w", err)
 	}
