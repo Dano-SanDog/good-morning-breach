@@ -817,3 +817,79 @@ func rollback(tx pgx.Tx) {
 }
 
 var _ identity.Store = (*IdentityStore)(nil)
+
+func (s *IdentityStore) CreateResetToken(ctx context.Context, email string, tokenHash []byte, now, expires time.Time, limit int, window time.Duration) (string, bool, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return "", false, fmt.Errorf("begin password reset request: %w", err)
+	}
+	defer rollback(tx)
+	var accountID int64
+	var accountEmail string
+	err = tx.QueryRow(queryCtx, `SELECT id, email FROM accounts WHERE email = $1 AND enabled FOR UPDATE`, email).
+		Scan(&accountID, &accountEmail)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("find password reset account: %w", err)
+	}
+	var recent int
+	if err := tx.QueryRow(queryCtx, `SELECT count(*) FROM password_reset_tokens
+		WHERE account_id = $1 AND created_at > $2`, accountID, now.Add(-window)).Scan(&recent); err != nil {
+		return "", false, fmt.Errorf("count password reset requests: %w", err)
+	}
+	if recent >= limit {
+		return "", false, nil
+	}
+	if _, err := tx.Exec(queryCtx, `DELETE FROM password_reset_tokens WHERE account_id = $1 AND expires_at <= $2 AND created_at <= $3`,
+		accountID, now, now.Add(-window)); err != nil {
+		return "", false, fmt.Errorf("delete expired password reset tokens: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `INSERT INTO password_reset_tokens (token_hash, account_id, created_at, expires_at)
+		VALUES ($1, $2, $3, $4)`, tokenHash, accountID, now, expires); err != nil {
+		return "", false, fmt.Errorf("save password reset token: %w", err)
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return "", false, fmt.Errorf("commit password reset request: %w", err)
+	}
+	return accountEmail, true, nil
+}
+
+func (s *IdentityStore) ConsumeResetToken(ctx context.Context, tokenHash []byte, passwordHash string, now time.Time) (int64, error) {
+	queryCtx, cancel := databaseContext(ctx)
+	defer cancel()
+	tx, err := s.pool.Begin(queryCtx)
+	if err != nil {
+		return 0, fmt.Errorf("begin password reset: %w", err)
+	}
+	defer rollback(tx)
+	var accountID int64
+	err = tx.QueryRow(queryCtx, `DELETE FROM password_reset_tokens AS tokens USING accounts
+		WHERE tokens.token_hash = $1 AND tokens.expires_at > $2
+		AND accounts.id = tokens.account_id AND accounts.enabled
+		RETURNING tokens.account_id`, tokenHash, now).Scan(&accountID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, identity.ErrResetToken
+	}
+	if err != nil {
+		return 0, fmt.Errorf("use password reset token: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `UPDATE accounts SET password_hash = $2 WHERE id = $1`, accountID, passwordHash); err != nil {
+		return 0, fmt.Errorf("set reset password: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `DELETE FROM password_reset_tokens WHERE account_id = $1`, accountID); err != nil {
+		return 0, fmt.Errorf("delete other password reset tokens: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE account_id = $1`, accountID); err != nil {
+		return 0, fmt.Errorf("end sessions after password reset: %w", err)
+	}
+	if err := tx.Commit(queryCtx); err != nil {
+		return 0, fmt.Errorf("commit password reset: %w", err)
+	}
+	return accountID, nil
+}
+
+var _ identity.ResetStore = (*IdentityStore)(nil)

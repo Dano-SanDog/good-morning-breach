@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -99,6 +100,12 @@ func NewSMTPSender(config SMTPConfig) (*SMTPSender, error) {
 		return nil, err
 	}
 	return &SMTPSender{config: config}, nil
+}
+
+// SendText sends a plain message with an escaped HTML copy (password reset).
+func (s *SMTPSender) SendText(ctx context.Context, to, subject, text string) error {
+	escaped := strings.ReplaceAll(html.EscapeString(text), "\n", "<br>\n")
+	return s.Send(ctx, to, Message{Subject: subject, Text: text, HTML: "<p>" + escaped + "</p>"})
 }
 
 func parseAddress(value string) (string, error) {

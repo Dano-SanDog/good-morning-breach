@@ -89,6 +89,18 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure identity service: %w", err)
 	}
+	smtpConfig, smtpConfigured, err := alerting.LoadSMTPConfig()
+	if err != nil {
+		return fmt.Errorf("configure SMTP: %w", err)
+	}
+	var sender *alerting.SMTPSender
+	if smtpConfigured {
+		sender, err = alerting.NewSMTPSender(smtpConfig)
+		if err != nil {
+			return fmt.Errorf("configure SMTP: %w", err)
+		}
+		identityService.EnablePasswordReset(identityStore, sender, "https://localhost:8443")
+	}
 	assets, err := httpserver.EmbeddedAssets()
 	if err != nil {
 		return fmt.Errorf("load client assets; run npm run build first: %w", err)
@@ -114,15 +126,7 @@ func run() error {
 	}()
 
 	alertsDone := make(chan struct{})
-	smtpConfig, smtpConfigured, err := alerting.LoadSMTPConfig()
-	if err != nil {
-		return fmt.Errorf("configure SMTP: %w", err)
-	}
-	if smtpConfigured {
-		sender, err := alerting.NewSMTPSender(smtpConfig)
-		if err != nil {
-			return fmt.Errorf("configure SMTP: %w", err)
-		}
+	if sender != nil {
 		alertService, err := alerting.NewService(postgres.NewAlertStore(pool), sender)
 		if err != nil {
 			return fmt.Errorf("configure alert delivery: %w", err)

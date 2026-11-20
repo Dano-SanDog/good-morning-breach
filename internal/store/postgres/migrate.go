@@ -46,6 +46,9 @@ var alertSettingsMigration string
 //go:embed migrations/012_alert_delivery.sql
 var alertDeliveryMigration string
 
+//go:embed migrations/013_password_reset.sql
+var passwordResetMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -66,6 +69,7 @@ var migrations = []migration{
 	{version: 10, sql: perAccountTOTPRequirementMigration},
 	{version: 11, sql: alertSettingsMigration},
 	{version: 12, sql: alertDeliveryMigration},
+	{version: 13, sql: passwordResetMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

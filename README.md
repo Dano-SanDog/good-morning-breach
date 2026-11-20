@@ -44,6 +44,8 @@ The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-F
 ### Morning Alert
 **Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: set `GB_SMTP_HOST`, optionally `GB_SMTP_PORT` (default 587; 465 uses implicit TLS, other ports require STARTTLS), `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE` (a regular `0600` file containing the app password; never put the password in an environment variable). Without `GB_SMTP_HOST`, alerts are disabled. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried up to 3 times at 10-minute intervals. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. Text message and Slack channels are not implemented.
 
+**Password reset.** With SMTP configured, the sign-in page offers "Forgot password?". The emailed link (`https://localhost:8443/#reset=…`, token in the fragment) is single use and expires in 30 minutes; the request always gets the same reply, and at most 3 emails per account per hour are sent. A successful reset ends all of the account's sessions; TOTP is still required at sign-in. Apply migration 013 after updating.
+
 The planned alert behavior is:
 - Default: 07:00 in each user's time zone, every day. Each user can change the time, time zone, and days, or stop the alert.
 - Channels, chosen per user: **Email**, **Text (SMS)**, **Slack** (user-supplied incoming webhook).
@@ -159,7 +161,7 @@ The migration and bootstrap commands use the local database owner; the server an
 - [ ] Add the remaining approved sources (CERT-EU, SANS ISC, CERT-FR, CISA advisories, and EFF Deeplinks are implemented)
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
-- [ ] Complete authentication and roles (admin account management and audit log are implemented; password reset remains)
+- [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
 - [ ] Complete the dashboard (filters and admin source status are implemented; fuller analysis, summary search, and Radar remain)
 - [ ] Add alert delivery (email preferences are saved; scheduling, email, SMS, and Slack delivery remain)
 - [ ] Apply for Reddit API access
