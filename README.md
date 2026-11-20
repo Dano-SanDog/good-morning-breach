@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, and saved email-alert preferences. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Alert delivery, password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, and saved email-alert preferences. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Alert delivery, password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -17,13 +17,13 @@ A private, non-commercial morning cybersecurity news feed. Good Morning Breach c
 
 Source licenses were researched for this use case. See [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
 
-The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, and EFF Deeplinks; the sources below are the planned launch set, not all implemented yet.
+The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, and the GitHub Advisory Database; the sources below are the planned launch set, not all implemented yet.
 
 | Group | Sources at launch |
 | --- | --- |
-| Government and CERT | CISA KEV and remaining advisory feeds, NVD API, FBI IC3, UK NCSC, CERT-EU, CERT-FR, Australia ASD's ACSC, Canadian Centre for Cyber Security |
-| Vulnerability and threat data | FIRST EPSS, GitHub Advisory Database, CISA Vulnrichment, abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar), Have I Been Pwned breach catalog |
-| News and research | SANS Internet Storm Center, EFF Deeplinks, Kaspersky Securelist, Hacker News (titles and links only) |
+| Government and CERT | remaining CISA advisory feeds, NVD API, FBI IC3, CERT-EU, CERT-FR, Australia ASD's ACSC |
+| Vulnerability and threat data | FIRST EPSS, CISA Vulnrichment, abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar), Have I Been Pwned breach catalog |
+| News and research | SANS Internet Storm Center, EFF Deeplinks, Hacker News (titles and links only) |
 | Internet signals | Cloudflare Radar (outages, attack trends, BGP events), Cloudflare Zero Wire (headline, link, CVE IDs, action label only) |
 | Frameworks | MITRE ATT&CK |
 | Reddit | r/netsec and r/cybersecurity, **only after Reddit approves API access**; titles and links shown without change, never summarized or scored |
@@ -35,7 +35,7 @@ The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-F
 - An admin records each source's license, terms link, and permitted use before the source can be enabled.
 - Each source has a content rule: full text, verbatim excerpt, summary, or headline and link only. "All rights reserved" news sources get headline and link only.
 - Every story shows its source name, attribution, and a link to the original.
-- The per-story SANS ISC attribution includes its CC BY-NC-SA 4.0 notice; CERT-FR attributions identify Licence Ouverte 2.0 and disclaim ANSSI endorsement; EFF attributions identify CC BY 4.0. Global NVD, MITRE ATT&CK, and Have I Been Pwned notices remain to be implemented. No government logos or seals, and no claim of endorsement.
+- The per-story SANS ISC attribution includes its CC BY-NC-SA 4.0 notice; CERT-FR attributions identify Licence Ouverte 2.0 and disclaim ANSSI endorsement; EFF attributions identify CC BY 4.0; UK NCSC attributions carry the Open Government Licence v3.0 statement; Canadian Cyber Centre attributions state the copy notice; KEV attributions state CC0 1.0 and no CISA/DHS endorsement; GitHub Advisory Database attributions state CC BY 4.0 and that headlines are reformatted; Securelist attributions carry the "Securelist blog" credit. Global NVD, MITRE ATT&CK, and Have I Been Pwned notices remain to be implemented. No government logos or seals, and no claim of endorsement.
 - CISA stories use headline and link only, with a source notice and no implied CISA or DHS endorsement.
 - If the service ever becomes commercial, non-commercial-only sources must be disabled or licensed.
 
@@ -109,9 +109,9 @@ Use Go 1.27.4 and Node.js 26.13.1. From the repository root, install the locked 
 
 ### First feed collection
 
-Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migrations seed the licensed CERT-EU, SANS Internet Storm Center, CERT-FR, CISA, and EFF Deeplinks RSS sources and grant the `gb_app` role only the ingestion, authentication, and story-reading permissions the application needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
+Install and start PostgreSQL 18, then create the database and its restricted application role (`createuser --login gb_app` and `createdb good_morning_breach`). Run migrations as the local database owner with `GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate`. The migrations seed the licensed CERT-EU, SANS Internet Storm Center, CERT-FR, CISA, EFF Deeplinks, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, and GitHub Advisory Database RSS and JSON sources and grant the `gb_app` role only the ingestion, authentication, and story-reading permissions the application needs. Run one collection with `GB_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable' go run ./cmd/collect`. If PostgreSQL requires a password, store it in the local PostgreSQL password file with mode `0600`; do not put it in a connection string or environment variable.
 
-The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and respects each source's persisted poll interval (24 hours for CERT-EU, 30 minutes for SANS ISC, and one hour for CERT-FR, CISA, and EFF). `cmd/collect` remains available for a one-shot manual run; the server also checks for due collections at startup and once per hour while it is running. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
+The collector stores normalized headlines and original links, not feed descriptions. It deduplicates stories by canonical link, records source attribution and collection outcomes, and respects each source's persisted poll interval (24 hours for CERT-EU, 30 minutes for SANS ISC, and one hour for every other source). Sources whose terms forbid changes (Canadian Cyber Centre and Securelist) skip items whose title would exceed the 300-character limit rather than shortening them. `cmd/collect` remains available for a one-shot manual run; the server also checks for due collections at startup and once per hour while it is running. Database connections are restricted to localhost or a Unix socket, and passwords must not be put in a connection string or environment variable.
 
 ### Schedule collection while the server is stopped (macOS)
 
@@ -144,7 +144,7 @@ After migrations are applied and the client dependencies are installed:
      go run ./cmd/server
    ```
 
-6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, and EFF from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
+6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, and GitHub Advisory Database from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
 
 The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences. Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
@@ -158,7 +158,7 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Implement the first licensed RSS ingestion slice (CERT-EU)
 - [x] Schedule enabled-source collection while the server is running
 - [x] Schedule collection while the server is stopped on macOS
-- [ ] Add the remaining approved sources (CERT-EU, SANS ISC, CERT-FR, CISA advisories, and EFF Deeplinks are implemented)
+- [ ] Add the remaining approved sources (CERT-EU, SANS ISC, CERT-FR, CISA advisories, EFF Deeplinks, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, and GitHub Advisory Database are implemented)
 - [ ] Add categorization and risk scoring
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)

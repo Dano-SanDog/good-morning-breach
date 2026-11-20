@@ -98,7 +98,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 
 	rows, err := s.pool.Query(queryCtx, `SELECT
 		id, name, address, license_name, license_url, permitted_use,
-		attribution, content_policy, poll_interval_seconds, last_success_at
+		attribution, content_policy, poll_interval_seconds, last_success_at, format, require_complete_title
 		FROM data_sources
 		WHERE enabled
 		ORDER BY id`)
@@ -123,6 +123,8 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 			&source.ContentPolicy,
 			&pollIntervalSeconds,
 			&lastSuccessAt,
+			&source.Format,
+			&source.CompleteTitles,
 		); err != nil {
 			return nil, fmt.Errorf("scan enabled source: %w", err)
 		}

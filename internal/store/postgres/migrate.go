@@ -49,6 +49,12 @@ var alertDeliveryMigration string
 //go:embed migrations/013_password_reset.sql
 var passwordResetMigration string
 
+//go:embed migrations/014_ncsc_cccs_securelist.sql
+var ncscCCCSSecurelistMigration string
+
+//go:embed migrations/015_json_sources.sql
+var jsonSourcesMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -70,6 +76,8 @@ var migrations = []migration{
 	{version: 11, sql: alertSettingsMigration},
 	{version: 12, sql: alertDeliveryMigration},
 	{version: 13, sql: passwordResetMigration},
+	{version: 14, sql: ncscCCCSSecurelistMigration},
+	{version: 15, sql: jsonSourcesMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {

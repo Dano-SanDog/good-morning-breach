@@ -72,6 +72,7 @@ func testSource(id string) Source {
 		PermittedUse:  "Reuse with attribution and indication of changes.",
 		Attribution:   "Source: CERT-EU. Licensed under CC BY 4.0.",
 		ContentPolicy: ContentHeadlineLink,
+		Format:        FormatRSS,
 		PollInterval:  24 * time.Hour,
 	}
 }
@@ -270,5 +271,188 @@ func feedResponse(body string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/rss+xml"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json; charset=utf-8"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestParseCISAKEVKeepsRecentEntriesWithNVDLinks(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	body := `{"vulnerabilities":[
+		{"cveID":"CVE-2024-10441","vendorProject":"Synology","product":"DSM","vulnerabilityName":"<b>Escaping</b> flaw","dateAdded":"2026-11-18"},
+		{"cveID":"CVE-2020-0001","vendorProject":"Old","product":"Thing","vulnerabilityName":"Old","dateAdded":"2020-01-01"},
+		{"cveID":"bad\"><x","vendorProject":"V","product":"P","vulnerabilityName":"N","dateAdded":"2026-11-18"},
+		{"cveID":"CVE-2024-10441","vendorProject":"Synology","product":"DSM","vulnerabilityName":"dup","dateAdded":"2026-11-18"}]}`
+	items, received, skipped, ok := parseCISAKEV([]byte(body), now)
+	if !ok || len(items) != 1 || received != 2 || skipped != 2 {
+		t.Fatalf("items=%d received=%d skipped=%d ok=%v", len(items), received, skipped, ok)
+	}
+	if items[0].Title != "CVE-2024-10441: Synology DSM - Escaping flaw" ||
+		items[0].CanonicalURL != "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=CVE-2024-10441" ||
+		items[0].PublishedAt == nil {
+		t.Fatalf("unexpected item %+v", items[0])
+	}
+	if _, _, _, ok := parseCISAKEV([]byte(`{"x":1}`), now); ok {
+		t.Fatal("expected a document without vulnerabilities to be invalid")
+	}
+}
+
+func TestParseGitHubAdvisoriesRebuildsLinksFromValidIDs(t *testing.T) {
+	body := `[
+		{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"Pre-auth <i>file</i> read","html_url":"https://evil.example/x","published_at":"2026-11-18T10:00:00Z"},
+		{"ghsa_id":"not-an-id","summary":"x","published_at":"2026-11-18T10:00:00Z"},
+		{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"dup"}]`
+	items, received, skipped, ok := parseGitHubAdvisories([]byte(body))
+	if !ok || len(items) != 1 || received != 3 || skipped != 2 {
+		t.Fatalf("items=%d received=%d skipped=%d ok=%v", len(items), received, skipped, ok)
+	}
+	if items[0].Title != "Pre-auth file read" ||
+		items[0].CanonicalURL != "https://github.com/advisories/GHSA-mc8w-wjhw-45x5" ||
+		items[0].PublishedAt == nil {
+		t.Fatalf("unexpected item %+v", items[0])
+	}
+}
+
+func TestRunCollectsJSONSourceAndRejectsInvalidJSON(t *testing.T) {
+	source := testSource("ghsa")
+	source.Format = FormatGitHubAdvisories
+	source.Address = "https://api.github.com/advisories"
+	body := `[{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"A flaw"}]`
+	store := &memoryStore{sources: []Source{source}}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Accept") != "application/json" {
+			t.Errorf("unexpected Accept %q", r.Header.Get("Accept"))
+		}
+		return jsonResponse(body), nil
+	})}
+	collector, _ := NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err != nil || len(store.completed) != 1 {
+		t.Fatalf("err=%v completed=%d", err, len(store.completed))
+	}
+
+	store = &memoryStore{sources: []Source{source}}
+	client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(`<html>`), nil
+	})}
+	collector, _ = NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err == nil || len(store.failures) != 1 {
+		t.Fatalf("expected a recorded failure, err=%v", err)
+	}
+}
+
+func TestDecodeStrictAndEmptyDocuments(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	for name, body := range map[string]string{
+		"kev trailing":   `{"vulnerabilities":[{"cveID":"CVE-2024-0001","dateAdded":"2026-11-18"}]} {}`,
+		"kev empty list": `{"vulnerabilities":[]}`,
+	} {
+		if _, _, _, ok := parseCISAKEV([]byte(body), now); ok {
+			t.Errorf("%s: expected invalid", name)
+		}
+	}
+	for name, body := range map[string]string{
+		"ghsa trailing": `[{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"x"}] junk`,
+		"ghsa empty":    `[]`,
+	} {
+		if _, _, _, ok := parseGitHubAdvisories([]byte(body)); ok {
+			t.Errorf("%s: expected invalid", name)
+		}
+	}
+}
+
+func TestParseCISAKEVCutoffAndUnparseableDates(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	body := `{"vulnerabilities":[
+		{"cveID":"CVE-2026-0001","vendorProject":"A","product":"A","vulnerabilityName":"A","dateAdded":"2026-10-20"},
+		{"cveID":"CVE-2026-0002","vendorProject":"B","product":"B","vulnerabilityName":"B","dateAdded":"2026-10-19"},
+		{"cveID":"CVE-2026-0003","vendorProject":"C","product":"C","vulnerabilityName":"C","dateAdded":"yesterday"}]}`
+	items, received, skipped, ok := parseCISAKEV([]byte(body), now)
+	if !ok || len(items) != 1 || items[0].Title[:13] != "CVE-2026-0001" || received != 1 || skipped != 1 {
+		t.Fatalf("items=%+v received=%d skipped=%d ok=%v", items, received, skipped, ok)
+	}
+}
+
+func TestContentTypeMustMatchSourceFormat(t *testing.T) {
+	run := func(source Source, contentType string) (*memoryStore, error) {
+		store := &memoryStore{sources: []Source{source}}
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			response := feedResponse(`<rss version="2.0"><channel></channel></rss>`)
+			response.Header.Set("Content-Type", contentType)
+			return response, nil
+		})}
+		collector, _ := NewCollector(client, store)
+		_, err := collector.Run(context.Background())
+		return store, err
+	}
+	jsonSource := testSource("kev")
+	jsonSource.Format = FormatCISAKEV
+	if store, err := run(jsonSource, "application/xml"); err == nil || store.failures[0] != "feed returned an unsupported content type" {
+		t.Fatalf("JSON source accepted XML: %v %v", err, store.failures)
+	}
+	if store, err := run(testSource("rss"), "application/json"); err == nil || store.failures[0] != "feed returned an unsupported content type" {
+		t.Fatalf("RSS source accepted JSON: %v %v", err, store.failures)
+	}
+}
+
+func TestJSONSourceRejectsOversizedResponse(t *testing.T) {
+	source := testSource("ghsa")
+	source.Format = FormatGitHubAdvisories
+	store := &memoryStore{sources: []Source{source}}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse("[" + strings.Repeat(" ", maxFeedBytes+1) + "]"), nil
+	})}
+	collector, _ := NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err == nil || store.failures[0] != "feed response exceeds the 10 MiB limit" {
+		t.Fatalf("err=%v failures=%v", err, store.failures)
+	}
+}
+
+func TestSourceValidationChecksFormat(t *testing.T) {
+	source := testSource("x")
+	source.Format = ""
+	if source.Validate() == nil {
+		t.Fatal("expected empty format to be rejected")
+	}
+	source.Format = "csv"
+	if source.Validate() == nil {
+		t.Fatal("expected unknown format to be rejected")
+	}
+	for _, format := range []Format{FormatRSS, FormatCISAKEV, FormatGitHubAdvisories} {
+		source.Format = format
+		if err := source.Validate(); err != nil {
+			t.Errorf("%s: %v", format, err)
+		}
+	}
+}
+
+func TestCompleteTitlesSkipsOverlongItems(t *testing.T) {
+	long := strings.Repeat("a", maxTitleRunes+1)
+	body := `<rss version="2.0"><channel>` +
+		`<item><title>` + long + `</title><link>https://example.test/long</link></item>` +
+		`<item><title>Short</title><link>https://example.test/short</link></item></channel></rss>`
+	for _, complete := range []bool{true, false} {
+		source := testSource("cccs")
+		source.CompleteTitles = complete
+		store := &memoryStore{sources: []Source{source}}
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return feedResponse(body), nil
+		})}
+		collector, _ := NewCollector(client, store)
+		if _, err := collector.Run(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		want := 2
+		if complete {
+			want = 1
+		}
+		if len(store.completed) != want {
+			t.Errorf("complete=%v saved %d items, want %d", complete, len(store.completed), want)
+		}
 	}
 }
