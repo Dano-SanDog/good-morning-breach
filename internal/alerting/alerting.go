@@ -50,7 +50,16 @@ type Technique struct {
 	URL     string
 }
 
+type RelatedStory struct {
+	Title string
+	URL   string
+	CVE   string
+}
+
 type Story struct {
+	ID           int64
+	CVEs         []string
+	Related      []RelatedStory
 	Title        string
 	URL          string
 	Sources      []string
