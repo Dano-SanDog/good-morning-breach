@@ -375,16 +375,16 @@ func (s *IdentityStore) RecordFailedLogin(ctx context.Context, accountID int64, 
 	var lockedUntil *time.Time
 	err := s.pool.QueryRow(queryCtx, `UPDATE accounts SET
 		failure_window_started_at = CASE
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
-			THEN $2 ELSE failure_window_started_at END,
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
+			THEN $2::timestamptz ELSE failure_window_started_at END,
 		failed_login_count = CASE
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
 			THEN 1 ELSE failed_login_count + 1 END,
 		locked_until = CASE
-			WHEN locked_until > $2 THEN locked_until
-			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2 - interval '15 minutes'
+			WHEN locked_until > $2::timestamptz THEN locked_until
+			WHEN failure_window_started_at IS NULL OR failure_window_started_at <= $2::timestamptz - interval '15 minutes'
 			THEN NULL
-			WHEN failed_login_count + 1 >= 5 THEN $2 + interval '15 minutes'
+			WHEN failed_login_count + 1 >= 5 THEN $2::timestamptz + interval '15 minutes'
 			ELSE NULL END
 		WHERE id = $1
 		RETURNING locked_until`, accountID, now).Scan(&lockedUntil)
@@ -422,6 +422,11 @@ func (s *IdentityStore) CreateSession(
 		tokenHash, accountID, now, now.Add(8*time.Hour),
 	); err != nil {
 		return fmt.Errorf("create sign-in session: %w", err)
+	}
+	if _, err := tx.Exec(queryCtx, `UPDATE accounts SET
+		failed_login_count = 0, failure_window_started_at = NULL, locked_until = NULL
+		WHERE id = $1`, accountID); err != nil {
+		return fmt.Errorf("clear failed sign-in state: %w", err)
 	}
 	if err := tx.Commit(queryCtx); err != nil {
 		return fmt.Errorf("commit sign-in session: %w", err)
