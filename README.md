@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email and Slack alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. Story summaries and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email, Slack, and text message alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. Story summaries and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -42,7 +42,7 @@ The migrations seed 24 sources (migrations 001 to 016), all enabled by default: 
 ## Features
 
 ### Morning Alert
-**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: configure SMTP as described under "Email setup (SMTP)" (`GB_SMTP_HOST`, `GB_SMTP_PORT`, `GB_SMTP_TLS`, `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE`; the password is never read from an environment variable). Without `GB_SMTP_HOST` the email channel is unavailable, but the scheduler still runs for Slack. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried per channel up to 3 times at 10-minute intervals, and a failure on one channel never stops the others. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. The email contains each story's title, link, risk, tone, source, publication time, categories, CVE IDs, ATT&CK tags (linked to attack.mitre.org), up to 3 related stories that share a CVE (headline and link only), and each source's required attribution; the MITRE notice appears when tags are shown. Only https links are rendered as links, and all text is escaped. Stories have no summary because only headlines are stored. With `GB_DEV_MAIL_DIR` set and no SMTP, alerts are also written there as `.eml` files for inspection.
+**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: configure SMTP as described under "Email setup (SMTP)" (`GB_SMTP_HOST`, `GB_SMTP_PORT`, `GB_SMTP_TLS`, `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE`; the password is never read from an environment variable). Without `GB_SMTP_HOST` the email channel is unavailable, but the scheduler still runs for Slack and text messages. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried per channel up to 3 times at 10-minute intervals, and a failure on one channel never stops the others. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. The email contains each story's title, link, risk, tone, source, publication time, categories, CVE IDs, ATT&CK tags (linked to attack.mitre.org), up to 3 related stories that share a CVE (headline and link only), and each source's required attribution; the MITRE notice appears when tags are shown. Only https links are rendered as links, and all text is escaped. Stories have no summary because only headlines are stored. With `GB_DEV_MAIL_DIR` set and no SMTP, alerts are also written there as `.eml` files for inspection.
 
 **Password reset.** With SMTP configured, the sign-in page offers "Forgot password?". The emailed link (`https://localhost:8443/#reset=…`, token in the fragment) is single use and expires in 30 minutes; the request always gets the same reply, and at most 3 emails per account per hour are sent. A successful reset ends all of the account's sessions. Apply migration 013 after updating. Without SMTP, password reset is disabled: requests get the usual reply but no message is sent, and the server logs a warning at startup. **Local development only:** set `GB_DEV_MAIL_DIR` to an absolute path (created with mode `0700`) and leave `GB_SMTP_HOST` unset; each reset message is then written to a private `0600` file in that directory instead of being emailed (open the newest file to get the link). SMTP always takes precedence, and the message contents are never logged.
 
@@ -51,11 +51,12 @@ Implemented alert behavior (email):
 - Contains stories collected since the last alert at or above the user's minimum risk level (default Medium), highest risk first, up to 10.
 - Failed deliveries are retried up to 3 times.
 
-**Slack alerts.** Each user chooses channels under "Alert preferences" (at least one stays on). Migration 022 adds the channel tables and applies in the same `go run ./cmd/migrate` run.
+**Slack and text message alerts.** Each user chooses channels under "Alert preferences" (at least one stays on). Migrations 022 and 023 add the channel and phone tables and apply in the same `go run ./cmd/migrate` run.
 - Slack: up to 10 stories (headline, link, risk, categories, CVE IDs, ATT&CK tags). The user pastes a Slack incoming webhook (`https://hooks.slack.com/services/...`; anything else is rejected). Saving sends a test message and reports a failure. The webhook is write-only: it is encrypted with AES-256-GCM using the local data key and never shown, returned, or logged. Story text is escaped before it is sent.
-- Slack alerts also appear in delivery records, which are kept 90 days. Text message (SMS) alerts are planned (FR-4.3, FR-4.15).
+- Text message (Twilio): up to 3 `[Risk] title` lines and the dashboard link (which only opens on this machine). A number must be verified first: the server sends a 6-digit code (valid 10 minutes, 5 tries, counted atomically so parallel guesses cannot exceed them, at most 3 codes per hour, stored hashed). Recipients can reply STOP to opt out; Twilio then refuses further messages, and the server turns the text channel off and records the failure. Each account is also limited per hour, and `GB_SMS_DAILY_CAP` (default 20) caps alert messages per 24 hours and `GB_SMS_CODE_DAILY_CAP` (default 10) caps verification codes separately, so codes cannot use up the alert cap. Messages are ASCII-folded and short to stay within one or two segments.
+- Delivery records for all channels are kept 90 days.
 
-Manual smoke test (needs a real webhook; automated tests use fake local servers only): save a webhook and confirm the test message arrives; set the alert time a few minutes ahead and confirm the alert.
+Manual smoke test (needs real credentials; automated tests use fake local servers only): save a webhook and confirm the test message arrives; verify your phone and confirm the code arrives; set the alert time a few minutes ahead and confirm both messages.
 
 ### Dashboard
 - Shows the last 24 hours by default, sorted by risk.
@@ -152,7 +153,7 @@ After migrations are applied and the client dependencies are installed:
 
 6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, CISA ICS/news/blog, FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks every 10 minutes, while respecting each feed's persisted poll interval.
 
-The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources migration 019 adds story retention deletes, admin authenticator reset auditing, and caps poll intervals at 24 hours; migration 022 adds per-channel alert state, and the Slack webhook storage and outbound message log used for the Slack test limit; migration 020 permanently drops the TOTP columns and deletes partial sessions (irreversible; run `go run ./cmd/migrate` before starting the updated server, since the old columns are gone) (migrations 001 to 022 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
+The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources migration 019 adds story retention deletes, admin authenticator reset auditing, and caps poll intervals at 24 hours; migration 022 adds per-channel alert state, Slack webhook storage, and the outbound message log; migration 023 adds phone storage and verification codes for SMS; migration 020 permanently drops the TOTP columns and deletes partial sessions (irreversible; run `go run ./cmd/migrate` before starting the updated server, since the old columns are gone) (migrations 001 to 023 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
 ### Email setup (SMTP)
 
@@ -195,9 +196,22 @@ Typical settings (confirm each against the provider's current documentation; the
 
 If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMTP_TLS` usually disagree; a sign-in error means a wrong username or password (use an app password where the provider requires one).
 
-## Slack setup
+## Slack and text message setup
 
 **Slack (no server configuration).** Each user creates an incoming webhook for their own workspace (Slack app settings, Incoming Webhooks, Add New Webhook to Workspace), then pastes it under "Alert preferences". The server creates its data key (`secrets` directory under the OS user configuration directory, mode `0600`) on first start.
+
+**Text messages (Twilio).** Create a Twilio account, buy or register a sender number (US numbers need toll-free verification or A2P 10DLC registration, which can take days), and create a Standard or Restricted API key (not the Auth Token, not a Main key). Then set:
+
+| Variable | Meaning |
+|---|---|
+| `GB_TWILIO_ACCOUNT_SID` | Account SID (`AC` + 32 hex characters) |
+| `GB_TWILIO_API_KEY_SID` | API key SID (`SK` + 32 hex characters) |
+| `GB_TWILIO_API_KEY_SECRET_FILE` | Path to a regular `0600` file containing only the API key secret. There is no secret environment variable. |
+| `GB_TWILIO_FROM` | Sender number in E.164 form, such as `+15551234567` |
+| `GB_SMS_DAILY_CAP` | Optional. Maximum alert text messages per 24 hours; 1 to 1000, default 20 |
+| `GB_SMS_CODE_DAILY_CAP` | Optional. Maximum verification-code texts per 24 hours, counted separately; 1 to 1000, default 10 |
+
+Without these, text messages are shown as unavailable. Twilio charges per message; this was not tested against a live account.
 
 ## Roadmap
 
@@ -215,10 +229,9 @@ If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMT
 - [x] MITRE ATT&CK mapping and email presentation (headline phrase and cue-based tags; shown on the dashboard and in email)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
 - [ ] Complete the dashboard (filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories are implemented; summaries and summary search remain)
-- [ ] Add alert delivery (scheduled delivery with retries is implemented; email and Slack channels are implemented; SMS remains)
+- [x] Add alert delivery (scheduled delivery with retries is implemented; email, Slack, and text message channels are implemented)
 
 ### Remaining work
 
-- Text message (SMS) alert channel with phone verification (FR-4.3, FR-4.13, FR-4.15).
 - Story summaries and summary search, only where a source's content policy permits (FR-8.8, FR-8.9).
 - The single content-rights gate for every output path (SC-023) and the "all rights reserved" source type (FR-1.21).

@@ -25,7 +25,8 @@ func (s *AlertStore) ListRecipients(ctx context.Context) ([]alerting.Recipient, 
 	rows, err := s.pool.Query(queryCtx, `SELECT accounts.id, accounts.email,
 		settings.alert_time, settings.time_zone, settings.days, settings.minimum_risk,
 		COALESCE(channels.email_enabled, true), COALESCE(channels.slack_enabled, false),
-		channels.slack_webhook_sealed
+		COALESCE(channels.sms_enabled, false), channels.slack_webhook_sealed,
+		COALESCE(channels.phone_e164, ''), channels.phone_verified_at IS NOT NULL
 		FROM alert_settings AS settings
 		JOIN accounts ON accounts.id = settings.account_id
 		LEFT JOIN alert_channel_settings AS channels ON channels.account_id = accounts.id
@@ -42,7 +43,7 @@ func (s *AlertStore) ListRecipients(ctx context.Context) ([]alerting.Recipient, 
 		c := &r.Contacts
 		if err := rows.Scan(&r.AccountID, &r.Email,
 			&r.Settings.Time, &r.Settings.TimeZone, &r.Settings.Days, &r.Settings.MinimumRisk,
-			&c.EmailEnabled, &c.SlackEnabled, &c.SlackWebhookSealed); err != nil {
+			&c.EmailEnabled, &c.SlackEnabled, &c.SMSEnabled, &c.SlackWebhookSealed, &c.Phone, &c.PhoneVerified); err != nil {
 			return nil, fmt.Errorf("scan alert recipient: %w", err)
 		}
 		index[r.AccountID] = len(recipients)

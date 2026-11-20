@@ -3,7 +3,9 @@ package secrets
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"strconv"
 )
@@ -54,4 +56,14 @@ func (b *Box) Open(purpose string, accountID int64, sealed []byte) ([]byte, erro
 		return nil, errors.New("sealed value could not be decrypted")
 	}
 	return plaintext, nil
+}
+
+// Digest returns a keyed hash for short secrets such as verification codes, so a
+// copy of the database cannot be used to guess them offline.
+func (b *Box) Digest(purpose string, accountID int64, value string) []byte {
+	mac := hmac.New(sha256.New, b.key)
+	mac.Write(aad(purpose, accountID))
+	mac.Write([]byte{0})
+	mac.Write([]byte(value))
+	return mac.Sum(nil)
 }
