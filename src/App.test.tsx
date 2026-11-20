@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
+import { CatalogAdmin, hasLicenceRecord, parseCatalogCategories, parseCatalogSources, sourceRequestBody } from "./CatalogAdmin";
 import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
@@ -142,4 +143,26 @@ test("shows the required NVD, MITRE, and Have I Been Pwned notices", () => {
   expect(markup).toContain("https://attack.mitre.org/resources/legal-and-branding/terms-of-use/");
   expect(markup).toContain("MITRE ATT&amp;CK® and ATT&amp;CK® are registered trademarks of The MITRE Corporation.");
   expect(markup).toContain("https://haveibeenpwned.com");
+});
+
+test("parses catalog categories and rejects malformed data", () => {
+  expect(parseCatalogCategories({ categories: [{ id: "__proto__", name: "<b>x</b>", enabled: true, storyCount: 2 }] })?.[0].name).toBe("<b>x</b>");
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  expect(parseCatalogCategories({ categories: [{ id: "a", name: "A", enabled: "yes", storyCount: 0 }] })).toBeNull();
+  expect(parseCatalogSources({ sources: [{ id: "a" }] })).toBeNull();
+});
+
+test("source request body converts hours to seconds and licence gate checks both fields", () => {
+  const body = sourceRequestBody({
+    name: "S", address: "https://example.org/feed", format: "rss", licenseName: "L", licenseUrl: "https://example.org/l",
+    permittedUse: "p", attribution: "a", contentPolicy: "headline_link", pollIntervalHours: "2",
+    enabled: false, requireCompleteTitle: true,
+  });
+  expect(body.pollIntervalSeconds).toBe(7200);
+  expect(hasLicenceRecord({ licenseName: "L", licenseUrl: "" })).toBe(false);
+  expect(hasLicenceRecord({ licenseName: "L", licenseUrl: "https://example.org/l" })).toBe(true);
+});
+
+test("catalog admin renders without markup injection", () => {
+  expect(renderToStaticMarkup(createElement(CatalogAdmin, {}))).toContain("Categories and sources");
 });

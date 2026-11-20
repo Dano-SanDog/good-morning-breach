@@ -78,3 +78,8 @@ func isBlockedIP(ip netip.Addr) bool {
 	}
 	return false
 }
+
+// IsBlockedAddr reports whether an address is outside the public internet and must never be dialled.
+func IsBlockedAddr(ip netip.Addr) bool {
+	return isBlockedIP(ip)
+}

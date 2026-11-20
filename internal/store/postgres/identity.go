@@ -274,7 +274,8 @@ func (s *IdentityStore) ListAdminAudit(ctx context.Context) ([]identity.AdminAud
 	defer cancel()
 
 	rows, err := s.pool.Query(queryCtx, `SELECT
-		id, actor_account_id, target_account_id, action, details::text, created_at
+		id, actor_account_id, COALESCE(target_account_id, 0), target_kind,
+		COALESCE(target_id, target_account_id::text, ''), action, details::text, created_at
 		FROM admin_audit_log
 		ORDER BY created_at DESC, id DESC
 		LIMIT 200`)
@@ -290,6 +291,8 @@ func (s *IdentityStore) ListAdminAudit(ctx context.Context) ([]identity.AdminAud
 			&record.ID,
 			&record.ActorAccountID,
 			&record.TargetAccountID,
+			&record.TargetKind,
+			&record.TargetID,
 			&record.Action,
 			&record.Details,
 			&record.CreatedAt,

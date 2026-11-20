@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/Dano-SanDog/good-morning-breach/internal/catalog"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -30,7 +31,7 @@ func New() (*http.Server, error) {
 	return newHTTPServer(router)
 }
 
-func NewApplication(service *identity.Service, assets fs.FS) (*http.Server, error) {
+func NewApplication(service *identity.Service, assets fs.FS, catalogService ...*catalog.Service) (*http.Server, error) {
 	if service == nil {
 		return nil, errors.New("identity service is required")
 	}
@@ -40,7 +41,7 @@ func NewApplication(service *identity.Service, assets fs.FS) (*http.Server, erro
 	if _, err := fs.Stat(assets, "index.html"); err != nil {
 		return nil, fmt.Errorf("client bundle is unavailable; run npm run build: %w", err)
 	}
-	router, err := newRouter(service, assets)
+	router, err := newRouter(service, assets, catalogService...)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func newHTTPServer(handler http.Handler) (*http.Server, error) {
 	}, nil
 }
 
-func newRouter(service *identity.Service, assets fs.FS) (*gin.Engine, error) {
+func newRouter(service *identity.Service, assets fs.FS, catalogService ...*catalog.Service) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(recoveryMiddleware(), correlationMiddleware(), securityHeaders(), limitRequestBody())
@@ -82,6 +83,11 @@ func newRouter(service *identity.Service, assets fs.FS) (*gin.Engine, error) {
 	}
 	if service != nil {
 		registerRoutes(router, service, assets)
+		for _, svc := range catalogService {
+			if svc != nil {
+				registerCatalogRoutes(router, svc)
+			}
+		}
 	}
 	router.NoRoute(func(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Not found."})
