@@ -72,6 +72,7 @@ func testSource(id string) Source {
 		PermittedUse:  "Reuse with attribution and indication of changes.",
 		Attribution:   "Source: CERT-EU. Licensed under CC BY 4.0.",
 		ContentPolicy: ContentHeadlineLink,
+		Format:        FormatRSS,
 		PollInterval:  24 * time.Hour,
 	}
 }
@@ -270,5 +271,77 @@ func feedResponse(body string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/rss+xml"}},
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func jsonResponse(body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json; charset=utf-8"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func TestParseCISAKEVKeepsRecentEntriesWithNVDLinks(t *testing.T) {
+	now := time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)
+	body := `{"vulnerabilities":[
+		{"cveID":"CVE-2024-10441","vendorProject":"Synology","product":"DSM","vulnerabilityName":"<b>Escaping</b> flaw","dateAdded":"2026-11-18"},
+		{"cveID":"CVE-2020-0001","vendorProject":"Old","product":"Thing","vulnerabilityName":"Old","dateAdded":"2020-01-01"},
+		{"cveID":"bad\"><x","vendorProject":"V","product":"P","vulnerabilityName":"N","dateAdded":"2026-11-18"},
+		{"cveID":"CVE-2024-10441","vendorProject":"Synology","product":"DSM","vulnerabilityName":"dup","dateAdded":"2026-11-18"}]}`
+	items, received, skipped, ok := parseCISAKEV([]byte(body), now)
+	if !ok || len(items) != 1 || received != 2 || skipped != 2 {
+		t.Fatalf("items=%d received=%d skipped=%d ok=%v", len(items), received, skipped, ok)
+	}
+	if items[0].Title != "CVE-2024-10441: Synology DSM - Escaping flaw" ||
+		items[0].CanonicalURL != "https://nvd.nist.gov/vuln/detail/CVE-2024-10441" ||
+		items[0].PublishedAt == nil {
+		t.Fatalf("unexpected item %+v", items[0])
+	}
+	if _, _, _, ok := parseCISAKEV([]byte(`{"x":1}`), now); ok {
+		t.Fatal("expected a document without vulnerabilities to be invalid")
+	}
+}
+
+func TestParseGitHubAdvisoriesRebuildsLinksFromValidIDs(t *testing.T) {
+	body := `[
+		{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"Pre-auth <i>file</i> read","html_url":"https://evil.example/x","published_at":"2026-11-18T10:00:00Z"},
+		{"ghsa_id":"not-an-id","summary":"x","published_at":"2026-11-18T10:00:00Z"},
+		{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"dup"}]`
+	items, received, skipped, ok := parseGitHubAdvisories([]byte(body))
+	if !ok || len(items) != 1 || received != 3 || skipped != 2 {
+		t.Fatalf("items=%d received=%d skipped=%d ok=%v", len(items), received, skipped, ok)
+	}
+	if items[0].Title != "Pre-auth file read" ||
+		items[0].CanonicalURL != "https://github.com/advisories/GHSA-mc8w-wjhw-45x5" ||
+		items[0].PublishedAt == nil {
+		t.Fatalf("unexpected item %+v", items[0])
+	}
+}
+
+func TestRunCollectsJSONSourceAndRejectsInvalidJSON(t *testing.T) {
+	source := testSource("ghsa")
+	source.Format = FormatGitHubAdvisories
+	source.Address = "https://api.github.com/advisories"
+	body := `[{"ghsa_id":"GHSA-mc8w-wjhw-45x5","summary":"A flaw"}]`
+	store := &memoryStore{sources: []Source{source}}
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Header.Get("Accept") != "application/json" {
+			t.Errorf("unexpected Accept %q", r.Header.Get("Accept"))
+		}
+		return jsonResponse(body), nil
+	})}
+	collector, _ := NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err != nil || len(store.completed) != 1 {
+		t.Fatalf("err=%v completed=%d", err, len(store.completed))
+	}
+
+	store = &memoryStore{sources: []Source{source}}
+	client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return jsonResponse(`<html>`), nil
+	})}
+	collector, _ = NewCollector(client, store)
+	if _, err := collector.Run(context.Background()); err == nil || len(store.failures) != 1 {
+		t.Fatalf("expected a recorded failure, err=%v", err)
 	}
 }

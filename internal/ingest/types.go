@@ -17,7 +17,16 @@ const (
 	ContentHeadlineLink    ContentPolicy = "headline_link"
 )
 
+type Format string
+
+const (
+	FormatRSS              Format = "rss"
+	FormatCISAKEV          Format = "cisa_kev_json"
+	FormatGitHubAdvisories Format = "github_advisories_json"
+)
+
 type Source struct {
+	Format        Format
 	ID            string
 	Name          string
 	Address       string
@@ -43,6 +52,11 @@ func (s Source) Validate() error {
 	}
 	if s.PollInterval <= 0 {
 		return errors.New("source poll interval must be positive")
+	}
+	switch s.Format {
+	case FormatRSS, FormatCISAKEV, FormatGitHubAdvisories:
+	default:
+		return errors.New("source format is invalid")
 	}
 	switch s.ContentPolicy {
 	case ContentFullText, ContentVerbatimExcerpt, ContentSystemSummary, ContentHeadlineLink:

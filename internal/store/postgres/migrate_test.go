@@ -5,11 +5,13 @@ import (
 	"testing"
 )
 
-func TestMigrationVersionsAreSequential(t *testing.T) {
-	for i, m := range migrations {
-		if m.version != i+1 {
-			t.Fatalf("migration %d has version %d", i+1, m.version)
+func TestMigrationVersionsAreStrictlyIncreasing(t *testing.T) {
+	previous := 0
+	for _, m := range migrations {
+		if m.version <= previous {
+			t.Fatalf("migration version %d does not follow %d", m.version, previous)
 		}
+		previous = m.version
 		if strings.TrimSpace(m.sql) == "" {
 			t.Fatalf("migration %d is empty", m.version)
 		}

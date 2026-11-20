@@ -118,18 +118,37 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 		return result, nil
 	}
 
-	feed, failure := c.fetchFeed(ctx, source.Address)
-	if failure != "" {
-		return fail(failure)
+	var items []Item
+	var received, skipped int
+	switch source.Format {
+	case FormatCISAKEV, FormatGitHubAdvisories:
+		body, failure := c.fetchBody(ctx, source, "application/json", "json")
+		if failure != "" {
+			return fail(failure)
+		}
+		var ok bool
+		if source.Format == FormatCISAKEV {
+			items, received, skipped, ok = parseCISAKEV(body, time.Now())
+		} else {
+			items, received, skipped, ok = parseGitHubAdvisories(body)
+		}
+		if !ok {
+			return fail("feed document is invalid")
+		}
+	default:
+		feed, failure := c.fetchFeed(ctx, source)
+		if failure != "" {
+			return fail(failure)
+		}
+		items, skipped = normalizeItems(feed)
+		received = len(feed.Items)
 	}
-
-	items, skipped := normalizeItems(feed)
-	result.ItemsReceived = len(feed.Items)
+	result.ItemsReceived = received
 	result.ItemsSkipped = skipped
 	run := Run{
 		StartedAt:     startedAt,
 		FinishedAt:    time.Now().UTC(),
-		ItemsReceived: len(feed.Items),
+		ItemsReceived: received,
 		ItemsSkipped:  skipped,
 	}
 	saved, err := c.store.CompleteCollection(ctx, source, run, items)
@@ -140,12 +159,24 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 	return result, nil
 }
 
-func (c *Collector) fetchFeed(ctx context.Context, address string) (*gofeed.Feed, string) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
+func (c *Collector) fetchFeed(ctx context.Context, source Source) (*gofeed.Feed, string) {
+	body, failure := c.fetchBody(ctx, source, "application/rss+xml, application/atom+xml, application/xml, text/xml", "xml")
+	if failure != "" {
+		return nil, failure
+	}
+	feed, err := c.parser.Parse(io.LimitReader(bytes.NewReader(body), maxFeedBytes))
+	if err != nil {
+		return nil, "feed document is invalid"
+	}
+	return feed, ""
+}
+
+func (c *Collector) fetchBody(ctx context.Context, source Source, accept, mediaSubstring string) ([]byte, string) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.Address, nil)
 	if err != nil {
 		return nil, "feed request could not be created"
 	}
-	request.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml")
+	request.Header.Set("Accept", accept)
 	request.Header.Set("User-Agent", "GoodMorningBreach/0.1 (personal non-commercial use)")
 
 	response, err := c.client.Do(request)
@@ -168,7 +199,7 @@ func (c *Collector) fetchFeed(ctx context.Context, address string) (*gofeed.Feed
 	}
 	if contentType := response.Header.Get("Content-Type"); contentType != "" {
 		mediaType, _, err := mime.ParseMediaType(contentType)
-		if err != nil || !strings.Contains(strings.ToLower(mediaType), "xml") {
+		if err != nil || !strings.Contains(strings.ToLower(mediaType), mediaSubstring) {
 			return nil, "feed returned an unsupported content type"
 		}
 	}
@@ -180,11 +211,7 @@ func (c *Collector) fetchFeed(ctx context.Context, address string) (*gofeed.Feed
 	if len(body) > maxFeedBytes {
 		return nil, "feed response exceeds the 10 MiB limit"
 	}
-	feed, err := c.parser.Parse(io.LimitReader(bytes.NewReader(body), maxFeedBytes))
-	if err != nil {
-		return nil, "feed document is invalid"
-	}
-	return feed, ""
+	return body, ""
 }
 
 func normalizeItems(feed *gofeed.Feed) ([]Item, int) {
