@@ -768,3 +768,18 @@ button:disabled {
     grid-column: auto;
   }
 }
+
+.dashboard-notices {
+  max-width: 760px;
+  margin: 24px auto 40px;
+  padding: 16px;
+  border-top: 1px solid #d9d7e5;
+  color: #4e4a6b;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-notices p {
+  margin: 0 0 8px;
+}

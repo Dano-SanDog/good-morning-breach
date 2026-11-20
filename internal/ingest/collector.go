@@ -121,15 +121,30 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 	var items []Item
 	var received, skipped int
 	switch source.Format {
-	case FormatCISAKEV, FormatGitHubAdvisories:
-		body, failure := c.fetchBody(ctx, source, "application/json", "json")
+	case FormatHackerNews:
+		var failure string
+		items, received, skipped, failure = c.collectHackerNews(ctx, source)
+		if failure != "" {
+			return fail(failure)
+		}
+	case FormatCISAKEV, FormatGitHubAdvisories, FormatNVD, FormatHIBPBreaches:
+		address := source.Address
+		if source.Format == FormatNVD {
+			address = nvdRequestURL(source.Address, time.Now())
+		}
+		body, failure := c.fetchURL(ctx, address, "application/json", "json")
 		if failure != "" {
 			return fail(failure)
 		}
 		var ok bool
-		if source.Format == FormatCISAKEV {
+		switch source.Format {
+		case FormatCISAKEV:
 			items, received, skipped, ok = parseCISAKEV(body, time.Now())
-		} else {
+		case FormatNVD:
+			items, received, skipped, ok = parseNVD(body)
+		case FormatHIBPBreaches:
+			items, received, skipped, ok = parseHIBPBreaches(body, time.Now())
+		default:
 			items, received, skipped, ok = parseGitHubAdvisories(body)
 		}
 		if !ok {
@@ -172,7 +187,11 @@ func (c *Collector) fetchFeed(ctx context.Context, source Source) (*gofeed.Feed,
 }
 
 func (c *Collector) fetchBody(ctx context.Context, source Source, accept, mediaSubstring string) ([]byte, string) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, source.Address, nil)
+	return c.fetchURL(ctx, source.Address, accept, mediaSubstring)
+}
+
+func (c *Collector) fetchURL(ctx context.Context, address, accept, mediaSubstring string) ([]byte, string) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return nil, "feed request could not be created"
 	}

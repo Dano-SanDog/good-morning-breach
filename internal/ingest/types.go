@@ -23,6 +23,9 @@ const (
 	FormatRSS              Format = "rss"
 	FormatCISAKEV          Format = "cisa_kev_json"
 	FormatGitHubAdvisories Format = "github_advisories_json"
+	FormatNVD              Format = "nvd_json"
+	FormatHIBPBreaches     Format = "hibp_breaches_json"
+	FormatHackerNews       Format = "hacker_news_json"
 )
 
 type Source struct {
@@ -56,7 +59,7 @@ func (s Source) Validate() error {
 		return errors.New("source poll interval must be positive")
 	}
 	switch s.Format {
-	case FormatRSS, FormatCISAKEV, FormatGitHubAdvisories:
+	case FormatRSS, FormatCISAKEV, FormatGitHubAdvisories, FormatNVD, FormatHIBPBreaches, FormatHackerNews:
 	default:
 		return errors.New("source format is invalid")
 	}
