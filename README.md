@@ -17,11 +17,11 @@ A private, non-commercial morning cybersecurity news feed. Good Morning Breach c
 
 Source licenses were researched for this use case. See [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
 
-The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Not yet added: Australia ACSC (feed unreachable and unverified). Out of scope by owner decision: Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar).
+The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Out of scope by owner decision: Australia ASD's ACSC (its site blocks the collector), Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar).
 
 | Group | Sources at launch |
 | --- | --- |
-| Government and CERT | remaining CISA advisory feeds, NVD API, FBI IC3, CERT-EU, CERT-FR, Australia ASD's ACSC |
+| Government and CERT | remaining CISA advisory feeds, NVD API, FBI IC3, CERT-EU, CERT-FR |
 | Vulnerability and threat data | Have I Been Pwned breach catalog |
 | News and research | SANS Internet Storm Center, EFF Deeplinks, Hacker News (titles and links only) |
 | Frameworks | MITRE ATT&CK |
