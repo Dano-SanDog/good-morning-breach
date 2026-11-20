@@ -376,6 +376,7 @@ button:disabled {
   flex-wrap: wrap;
   gap: 12px 32px;
   margin: 10px 0 0;
+  font-size: 14px;
 }
 
 .story-metadata div {
@@ -456,6 +457,7 @@ button:disabled {
 
 .alert-settings-fields {
   display: grid;
+  align-items: start;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
 }
@@ -476,6 +478,7 @@ button:disabled {
   background: #fff;
   color: #1d1a3b;
   font: inherit;
+  font-weight: 400;
 }
 
 .alert-settings-fields small {
@@ -494,6 +497,47 @@ button:disabled {
   min-height: 44px;
   align-items: center;
   gap: 8px;
+}
+
+.alert-channels {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.alert-channels h3,
+.alert-channels p {
+  margin: 0;
+}
+
+.alert-channels form {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 440px);
+  margin-top: 8px;
+}
+
+.alert-channels form label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.alert-channels form input {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid #7c7898;
+  border-radius: 3px;
+  background: #fff;
+  color: #1d1a3b;
+  font: inherit;
+  font-weight: 400;
+}
+
+.alert-channels form .primary-button,
+.alert-channels form .secondary-button {
+  justify-self: start;
 }
 
 .alert-days {
@@ -614,7 +658,24 @@ button:disabled {
   overflow-x: auto;
 }
 
+.admin-table-scroll::before {
+  display: none;
+  content: "Scroll sideways to see all columns.";
+  position: sticky;
+  left: 0;
+  padding: 4px 0 8px;
+  color: #4e4a6b;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .admin-table-scroll::before {
+    display: block;
+  }
+}
+
 .admin-table {
+  min-width: 560px;
   width: 100%;
   border-collapse: collapse;
   text-align: left;
@@ -637,17 +698,16 @@ button:disabled {
 }
 
 .admin-table select {
-  min-height: 40px;
+  min-height: 44px;
 }
 
-.admin-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.admin-actions .table-button {
+  margin: 2px 8px 2px 0;
 }
 
 .table-button {
-  min-height: 40px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 6px 10px;
   border: 1px solid #2e2a8c;
   border-radius: 4px;
