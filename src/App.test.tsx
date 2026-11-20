@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { App, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
+import { App, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
   const markup = renderToStaticMarkup(createElement(App));
@@ -127,4 +127,10 @@ test("builds inclusive local date ranges and rejects incomplete ranges", () => {
   expect(end.getHours()).toBe(0);
   expect(() => storyFilterQuery({ ...filters, end: "" }, 0)).toThrow("both");
   expect(() => storyFilterQuery({ ...filters, end: "2026-03-07" }, 0)).toThrow("valid");
+});
+
+test("accepts only well-formed reset tokens from the URL fragment", () => {
+  expect(parseResetToken("#reset=abcDEF123")).toBe("abcDEF123");
+  expect(parseResetToken("#reset=<script>")).toBe("");
+  expect(parseResetToken("")).toBe("");
 });

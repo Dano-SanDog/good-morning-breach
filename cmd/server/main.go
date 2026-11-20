@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/alerting"
 	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
 	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
@@ -24,6 +25,7 @@ import (
 const (
 	defaultDatabaseURL      = "host=127.0.0.1 dbname=good_morning_breach user=gb_app sslmode=disable"
 	collectionCheckInterval = time.Hour
+	alertCheckInterval      = time.Minute
 	serverShutdownTimeout   = 10 * time.Second
 )
 
@@ -87,6 +89,18 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("configure identity service: %w", err)
 	}
+	smtpConfig, smtpConfigured, err := alerting.LoadSMTPConfig()
+	if err != nil {
+		return fmt.Errorf("configure SMTP: %w", err)
+	}
+	var sender *alerting.SMTPSender
+	if smtpConfigured {
+		sender, err = alerting.NewSMTPSender(smtpConfig)
+		if err != nil {
+			return fmt.Errorf("configure SMTP: %w", err)
+		}
+		identityService.EnablePasswordReset(identityStore, sender, "https://localhost:8443")
+	}
 	assets, err := httpserver.EmbeddedAssets()
 	if err != nil {
 		return fmt.Errorf("load client assets; run npm run build first: %w", err)
@@ -111,6 +125,24 @@ func run() error {
 		}
 	}()
 
+	alertsDone := make(chan struct{})
+	if sender != nil {
+		alertService, err := alerting.NewService(postgres.NewAlertStore(pool), sender)
+		if err != nil {
+			return fmt.Errorf("configure alert delivery: %w", err)
+		}
+		go func() {
+			defer close(alertsDone)
+			if err := alerting.RunPeriodically(runCtx, alertService, alertCheckInterval); err != nil {
+				slog.Error("alert scheduler stopped", "event", "alert_scheduler", "outcome", "failure", "error", err)
+			}
+		}()
+		slog.Info("starting alert scheduler", "event", "alert_scheduler", "outcome", "started")
+	} else {
+		close(alertsDone)
+		slog.Warn("GB_SMTP_HOST is not set; morning alerts are disabled", "event", "alert_scheduler", "outcome", "disabled")
+	}
+
 	slog.Info(
 		"starting collection scheduler",
 		"event", "collection_scheduler",
@@ -128,6 +160,7 @@ func run() error {
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			stop()
 			<-collectionDone
+			<-alertsDone
 			return fmt.Errorf("HTTPS server stopped: %w", err)
 		}
 		stop()
@@ -140,6 +173,7 @@ func run() error {
 	shutdownErr := server.Shutdown(shutdownCtx)
 	stop()
 	<-collectionDone
+	<-alertsDone
 	if shutdownErr != nil {
 		return fmt.Errorf("shut down HTTPS server: %w", shutdownErr)
 	}

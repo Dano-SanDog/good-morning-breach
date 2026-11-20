@@ -27,6 +27,7 @@ type Service struct {
 	dataKey []byte
 	client  *http.Client
 	now     func() time.Time
+	reset   *passwordReset
 }
 
 type LoginStep string

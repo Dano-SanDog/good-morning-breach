@@ -33,6 +33,8 @@ func registerRoutes(router *gin.Engine, service *identity.Service, assets fs.FS)
 	router.POST("/api/auth/totp/setup/start", requireCSRF(), api.beginTOTPSetup)
 	router.POST("/api/auth/totp/setup/confirm", requireCSRF(), api.confirmTOTPSetup)
 	router.POST("/api/auth/totp/login", requireCSRF(), api.completeTOTPLogin)
+	router.POST("/api/auth/password-reset/request", requireCSRF(), api.requestPasswordReset)
+	router.POST("/api/auth/password-reset/confirm", requireCSRF(), api.confirmPasswordReset)
 	router.POST("/api/auth/logout", requireCSRF(), api.logout)
 	router.GET("/api/stories", api.stories)
 	router.GET("/api/alert-settings", api.getAlertSettings)
@@ -94,6 +96,44 @@ func (h *apiHandlers) login(c *gin.Context) {
 	}
 	setSessionCookie(c, result.Token, 5*60)
 	c.JSON(http.StatusOK, gin.H{"next": result.Next})
+}
+
+func (h *apiHandlers) requestPasswordReset(c *gin.Context) {
+	var request struct {
+		Email string `json:"email"`
+	}
+	if err := decodeStrictJSON(c, &request); err != nil || len(request.Email) > 254 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	if err := h.identity.RequestPasswordReset(c.Request.Context(), request.Email); err != nil {
+		writeInternalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "If that address has an account, we sent a link."})
+}
+
+func (h *apiHandlers) confirmPasswordReset(c *gin.Context) {
+	var request struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := decodeStrictJSON(c, &request); err != nil || len(request.Token) > 128 ||
+		!utf8.ValidString(request.Password) || utf8.RuneCountInString(request.Password) > 256 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	err := h.identity.ResetPassword(c.Request.Context(), request.Token, request.Password)
+	switch {
+	case err == nil:
+		clearSessionCookie(c)
+		c.JSON(http.StatusOK, gin.H{"message": "Password changed. Sign in with your new password."})
+	case errors.Is(err, identity.ErrResetToken):
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "This reset link is invalid or has expired."})
+	case writeAdminError(c, err):
+	default:
+		writeInternalError(c, err)
+	}
 }
 
 func (h *apiHandlers) currentUser(c *gin.Context) {

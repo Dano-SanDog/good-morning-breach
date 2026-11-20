@@ -69,7 +69,7 @@ type Story = {
 const riskValues: ReadonlySet<string> = new Set(["Critical", "High", "Medium", "Low", "Informational"]);
 const sentimentValues: ReadonlySet<string> = new Set(["Negative", "Neutral", "Positive"]);
 type LoginStep = "totp" | "setup";
-type View = "loading" | "signin" | LoginStep | "dashboard";
+type View = "loading" | "signin" | "forgot" | LoginStep | "dashboard";
 
 const credentialError = "Email, password, or code is incorrect.";
 
@@ -87,6 +87,10 @@ export function getSafeExternalURL(value: string): URL | null {
     return null;
   }
   return null;
+}
+
+export function parseResetToken(hash: string): string {
+  return /^#reset=([A-Za-z0-9]{1,128})$/.exec(hash)?.[1] ?? "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -368,6 +372,10 @@ export function App() {
   const [newAccountRole, setNewAccountRole] = useState<"admin" | "user">("user");
   const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
+  const [resetToken, setResetToken] = useState(() =>
+    typeof window === "undefined" ? "" : parseResetToken(window.location.hash),
+  );
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const loadStories = useCallback(async (filters: StoryFilters, offset: number) => {
@@ -590,6 +598,49 @@ export function App() {
     }
   }
 
+  async function handleForgot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON("/api/auth/password-reset/request", "POST", { email });
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      setNotice("If that address has an account, we sent a link.");
+      setView("signin");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The request could not be completed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleResetPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await mutateJSON("/api/auth/password-reset/confirm", "POST", {
+        token: resetToken,
+        password,
+      });
+      if (!response.ok) {
+        throw new Error(await responseError(response));
+      }
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      setResetToken("");
+      setNotice("Password changed. Sign in with your new password.");
+      setUser(null);
+      setView("signin");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The request could not be completed.");
+    } finally {
+      setPassword("");
+      setBusy(false);
+    }
+  }
+
   async function handleTOTP(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -733,6 +784,66 @@ export function App() {
     return <main className="centered-shell"><p>Loading Good Morning Breach…</p></main>;
   }
 
+  if (resetToken !== "") {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel" aria-labelledby="reset-heading">
+          <img className="brand-mark" src={logo} alt="" />
+          <h1 id="reset-heading">Choose a new password</h1>
+          <p className="muted">Use at least 12 characters.</p>
+          <form onSubmit={handleResetPassword}>
+            <label htmlFor="new-password">New password</label>
+            <input
+              id="new-password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={256}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+            {message && <p className="message" role="alert">{message}</p>}
+            <button type="submit" className="primary-button" disabled={busy}>
+              {busy ? "Saving…" : "Change password"}
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
+  if (view === "forgot") {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel" aria-labelledby="forgot-heading">
+          <img className="brand-mark" src={logo} alt="" />
+          <h1 id="forgot-heading">Reset your password</h1>
+          <p className="muted">We will email a link that works for 30 minutes.</p>
+          <form onSubmit={handleForgot}>
+            <label htmlFor="reset-email">Email address</label>
+            <input
+              id="reset-email"
+              type="email"
+              autoComplete="username"
+              maxLength={254}
+              required
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+            {message && <p className="message" role="alert">{message}</p>}
+            <button type="submit" className="primary-button" disabled={busy}>
+              {busy ? "Sending…" : "Send reset link"}
+            </button>
+            <button type="button" className="secondary-button" onClick={() => { setMessage(""); setView("signin"); }}>
+              Back to sign in
+            </button>
+          </form>
+        </section>
+      </main>
+    );
+  }
+
   if (view === "signin") {
     return (
       <main className="auth-shell">
@@ -761,9 +872,13 @@ export function App() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
             />
+            {notice && <p className="muted" role="status">{notice}</p>}
             {message && <p className="message" role="alert">{message}</p>}
             <button type="submit" className="primary-button" disabled={busy}>
               {busy ? "Signing in…" : "Continue"}
+            </button>
+            <button type="button" className="secondary-button" onClick={() => { setMessage(""); setNotice(""); setView("forgot"); }}>
+              Forgot password?
             </button>
           </form>
         </section>
