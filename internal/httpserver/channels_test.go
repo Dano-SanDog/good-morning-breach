@@ -34,10 +34,9 @@ func (s *fakeContactStore) SaveSlackWebhook(context.Context, int64, []byte) erro
 func (s *fakeContactStore) StartPhoneVerification(context.Context, int64, string, []byte, time.Time, time.Time) error {
 	return nil
 }
-func (s *fakeContactStore) GetVerification(context.Context, int64) (alerting.Verification, bool, error) {
+func (s *fakeContactStore) ConsumeVerificationAttempt(context.Context, int64, int, time.Time) (alerting.Verification, bool, error) {
 	return alerting.Verification{}, false, nil
 }
-func (s *fakeContactStore) RecordFailedCode(context.Context, int64) error { return nil }
 func (s *fakeContactStore) ConfirmPhone(context.Context, int64, string, time.Time) error {
 	return nil
 }

@@ -3,6 +3,8 @@ package postgres
 import (
 	"context"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -61,17 +63,36 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 	if !record.SlackEnabled || record.PendingPhone != "+15551234567" || record.PhoneVerified {
 		t.Fatalf("after webhook and code: %+v", record)
 	}
-	if err := store.RecordFailedCode(ctx, account); err != nil {
-		t.Fatal(err)
+	v, found, err := store.ConsumeVerificationAttempt(ctx, account, 5, now)
+	if err != nil || !found || v.FailedAttempts != 1 {
+		t.Fatalf("verification: %+v %v %v", v, found, err)
 	}
-	v, found, _ := store.GetVerification(ctx, account)
-	if !found || v.FailedAttempts != 1 {
-		t.Fatalf("verification: %+v %v", v, found)
+	// Parallel guesses must never obtain more than the remaining attempts.
+	var granted atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, ok, err := store.ConsumeVerificationAttempt(ctx, account, 5, now); err == nil && ok {
+				granted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if granted.Load() != 4 {
+		t.Fatalf("parallel attempts granted = %d, want 4", granted.Load())
+	}
+	if _, ok, _ := store.ConsumeVerificationAttempt(ctx, account, 5, now.Add(11*time.Minute)); ok {
+		t.Fatal("expired code consumed an attempt")
+	}
+	if err := store.StartPhoneVerification(ctx, account, "+15551234567", []byte("h"), now.Add(10*time.Minute), now); err != nil {
+		t.Fatal(err)
 	}
 	if err := store.ConfirmPhone(ctx, account, "+15551234567", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, found, _ := store.GetVerification(ctx, account); found {
+	if _, found, _ := store.ConsumeVerificationAttempt(ctx, account, 5, now); found {
 		t.Fatal("verification kept after confirmation")
 	}
 
@@ -121,7 +142,7 @@ func TestAlertChannelsWithMigratedPostgres(t *testing.T) {
 	if ok, _ := store.ReserveMessage(ctx, account, quota, now); ok {
 		t.Fatal("per-account limit not enforced")
 	}
-	if ok, _ := store.ReserveMessage(ctx, account, alerting.Quota{Kind: "sms_alert", GlobalDaily: 3}, now); ok {
+	if ok, _ := store.ReserveMessage(ctx, account, alerting.Quota{Kind: "sms_code", GlobalDaily: 3}, now); ok {
 		t.Fatal("daily cap not enforced")
 	}
 	if ok, _ := store.ReserveMessage(ctx, account, quota, now.Add(2*time.Hour)); !ok {

@@ -75,12 +75,16 @@ func (s *AlertStore) StartPhoneVerification(ctx context.Context, accountID int64
 	return nil
 }
 
-func (s *AlertStore) GetVerification(ctx context.Context, accountID int64) (alerting.Verification, bool, error) {
+// ConsumeVerificationAttempt takes one attempt in a single UPDATE, so
+// concurrent guesses cannot read the same counter (SC-056).
+func (s *AlertStore) ConsumeVerificationAttempt(ctx context.Context, accountID int64, maxAttempts int, now time.Time) (alerting.Verification, bool, error) {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	var v alerting.Verification
-	err := s.pool.QueryRow(queryCtx, `SELECT phone_e164, code_hash, expires_at, failed_attempts
-		FROM phone_verifications WHERE account_id = $1`, accountID).Scan(&v.Phone, &v.CodeHash, &v.ExpiresAt, &v.FailedAttempts)
+	err := s.pool.QueryRow(queryCtx, `UPDATE phone_verifications SET failed_attempts = failed_attempts + 1
+		WHERE account_id = $1 AND failed_attempts < $2 AND expires_at > $3
+		RETURNING phone_e164, code_hash, expires_at, failed_attempts`, accountID, maxAttempts, now).
+		Scan(&v.Phone, &v.CodeHash, &v.ExpiresAt, &v.FailedAttempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return v, false, nil
 	}
@@ -88,16 +92,6 @@ func (s *AlertStore) GetVerification(ctx context.Context, accountID int64) (aler
 		return v, false, fmt.Errorf("read phone verification: %w", err)
 	}
 	return v, true, nil
-}
-
-func (s *AlertStore) RecordFailedCode(ctx context.Context, accountID int64) error {
-	queryCtx, cancel := databaseContext(ctx)
-	defer cancel()
-	_, err := s.pool.Exec(queryCtx, `UPDATE phone_verifications SET failed_attempts = failed_attempts + 1 WHERE account_id = $1`, accountID)
-	if err != nil {
-		return fmt.Errorf("record failed verification code: %w", err)
-	}
-	return nil
 }
 
 // ConfirmPhone marks the number verified and removes the pending code. Changing
@@ -160,7 +154,7 @@ func (s *AlertStore) ReserveMessage(ctx context.Context, accountID int64, q aler
 	if q.GlobalDaily > 0 {
 		var used int
 		if err := tx.QueryRow(queryCtx, `SELECT count(*) FROM outbound_message_log
-			WHERE kind IN ('sms_code', 'sms_alert') AND sent_at > $1`, now.Add(-24*time.Hour)).Scan(&used); err != nil {
+			WHERE kind = $1 AND sent_at > $2`, q.Kind, now.Add(-24*time.Hour)).Scan(&used); err != nil {
 			return false, fmt.Errorf("count daily text messages: %w", err)
 		}
 		if used >= q.GlobalDaily {

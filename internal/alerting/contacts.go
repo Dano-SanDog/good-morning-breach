@@ -54,8 +54,9 @@ type ContactStore interface {
 	SaveChannels(ctx context.Context, accountID int64, email, slack, sms bool) error
 	SaveSlackWebhook(ctx context.Context, accountID int64, sealed []byte) error
 	StartPhoneVerification(ctx context.Context, accountID int64, phone string, codeHash []byte, expires, now time.Time) error
-	GetVerification(ctx context.Context, accountID int64) (Verification, bool, error)
-	RecordFailedCode(ctx context.Context, accountID int64) error
+	// ConsumeVerificationAttempt atomically uses one attempt of the pending
+	// code. It reports false when there is no live code or no attempts left.
+	ConsumeVerificationAttempt(ctx context.Context, accountID int64, maxAttempts int, now time.Time) (Verification, bool, error)
 	ConfirmPhone(ctx context.Context, accountID int64, phone string, now time.Time) error
 }
 
@@ -194,7 +195,7 @@ func (s *ContactService) StartPhoneVerification(ctx context.Context, accountID i
 	}
 	now := s.now()
 	ok, err := s.store.ReserveMessage(ctx, accountID, Quota{
-		Kind: "sms_code", PerAccount: codesPerHour, Window: rateWindow, GlobalDaily: s.twilio.DailyCap()}, now)
+		Kind: "sms_code", PerAccount: codesPerHour, Window: rateWindow, GlobalDaily: s.twilio.CodeDailyCap()}, now)
 	if err != nil {
 		return err
 	}
@@ -219,22 +220,20 @@ func (s *ContactService) StartPhoneVerification(ctx context.Context, accountID i
 	return nil
 }
 
-// VerifyPhone checks the code in constant time. The code is invalidated after 5
-// wrong entries or 10 minutes (SC-056).
+// VerifyPhone checks the code in constant time. The attempt is consumed before
+// the comparison, so parallel guesses cannot exceed 5. The code is invalidated after 5
+// entries or 10 minutes (SC-056).
 func (s *ContactService) VerifyPhone(ctx context.Context, accountID int64, code string) error {
-	verification, found, err := s.store.GetVerification(ctx, accountID)
+	now := s.now()
+	verification, found, err := s.store.ConsumeVerificationAttempt(ctx, accountID, maxCodeAttempts, now)
 	if err != nil {
 		return err
 	}
-	now := s.now()
-	if !found || !now.Before(verification.ExpiresAt) || verification.FailedAttempts >= maxCodeAttempts {
+	if !found {
 		return ErrCodeRejected
 	}
 	expected := s.box.Digest(phonePurpose, accountID, verification.Phone+":"+code)
 	if len(code) != 6 || subtle.ConstantTimeCompare(expected, verification.CodeHash) != 1 {
-		if err := s.store.RecordFailedCode(ctx, accountID); err != nil {
-			return err
-		}
 		slog.Warn("verification code rejected", "event", "phone_verification", "outcome", "failure", "account_id", accountID)
 		return ErrCodeRejected
 	}

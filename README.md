@@ -53,7 +53,7 @@ Implemented alert behavior (email):
 
 **Slack and text message alerts.** Each user chooses channels under "Alert preferences" (at least one stays on). Migrations 022 and 023 add the channel and phone tables and apply in the same `go run ./cmd/migrate` run.
 - Slack: up to 10 stories (headline, link, risk, categories, CVE IDs, ATT&CK tags). The user pastes a Slack incoming webhook (`https://hooks.slack.com/services/...`; anything else is rejected). Saving sends a test message and reports a failure. The webhook is write-only: it is encrypted with AES-256-GCM using the local data key and never shown, returned, or logged. Story text is escaped before it is sent.
-- Text message (Twilio): up to 3 `[Risk] title` lines and the dashboard link (which only opens on this machine). A number must be verified first: the server sends a 6-digit code (valid 10 minutes, 5 wrong tries, at most 3 codes per hour, stored hashed). Recipients can reply STOP to opt out; Twilio then refuses further messages, and the server turns the text channel off and records the failure. Each account is also limited per hour, and `GB_SMS_DAILY_CAP` (default 20) caps all messages per 24 hours as a cost limit. Messages are ASCII-folded and short to stay within one or two segments.
+- Text message (Twilio): up to 3 `[Risk] title` lines and the dashboard link (which only opens on this machine). A number must be verified first: the server sends a 6-digit code (valid 10 minutes, 5 tries, counted atomically so parallel guesses cannot exceed them, at most 3 codes per hour, stored hashed). Recipients can reply STOP to opt out; Twilio then refuses further messages, and the server turns the text channel off and records the failure. Each account is also limited per hour, and `GB_SMS_DAILY_CAP` (default 20) caps alert messages per 24 hours and `GB_SMS_CODE_DAILY_CAP` (default 10) caps verification codes separately, so codes cannot use up the alert cap. Messages are ASCII-folded and short to stay within one or two segments.
 - Delivery records for all channels are kept 90 days.
 
 Manual smoke test (needs real credentials; automated tests use fake local servers only): save a webhook and confirm the test message arrives; verify your phone and confirm the code arrives; set the alert time a few minutes ahead and confirm both messages.
@@ -208,7 +208,8 @@ If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMT
 | `GB_TWILIO_API_KEY_SID` | API key SID (`SK` + 32 hex characters) |
 | `GB_TWILIO_API_KEY_SECRET_FILE` | Path to a regular `0600` file containing only the API key secret. There is no secret environment variable. |
 | `GB_TWILIO_FROM` | Sender number in E.164 form, such as `+15551234567` |
-| `GB_SMS_DAILY_CAP` | Optional. Maximum text messages (alerts and verification codes) per 24 hours; 1 to 1000, default 20 |
+| `GB_SMS_DAILY_CAP` | Optional. Maximum alert text messages per 24 hours; 1 to 1000, default 20 |
+| `GB_SMS_CODE_DAILY_CAP` | Optional. Maximum verification-code texts per 24 hours, counted separately; 1 to 1000, default 10 |
 
 Without these, text messages are shown as unavailable. Twilio charges per message; this was not tested against a live account.
 

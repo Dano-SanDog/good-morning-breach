@@ -21,10 +21,11 @@ const (
 	// machine that runs the server.
 	DashboardURL = "https://localhost:8443"
 
-	DefaultSMSDailyCap = 20
-	maxSMSDailyCap     = 1000
-	smsTitles          = 3
-	smsTitleLength     = 60
+	DefaultSMSDailyCap     = 20
+	DefaultSMSCodeDailyCap = 10
+	maxSMSDailyCap         = 1000
+	smsTitles              = 3
+	smsTitleLength         = 60
 )
 
 var (
@@ -48,6 +49,7 @@ type TwilioConfig struct {
 	APIKeySecret string
 	From         string
 	DailyCap     int
+	CodeDailyCap int
 }
 
 func (c TwilioConfig) LogValue() slog.Value {
@@ -69,10 +71,11 @@ func LoadTwilioConfig() (TwilioConfig, bool, error) {
 		return TwilioConfig{}, false, nil
 	}
 	config := TwilioConfig{
-		AccountSID: account,
-		APIKeySID:  os.Getenv("GB_TWILIO_API_KEY_SID"),
-		From:       os.Getenv("GB_TWILIO_FROM"),
-		DailyCap:   DefaultSMSDailyCap,
+		AccountSID:   account,
+		APIKeySID:    os.Getenv("GB_TWILIO_API_KEY_SID"),
+		From:         os.Getenv("GB_TWILIO_FROM"),
+		DailyCap:     DefaultSMSDailyCap,
+		CodeDailyCap: DefaultSMSCodeDailyCap,
 	}
 	if raw := os.Getenv("GB_SMS_DAILY_CAP"); raw != "" {
 		cap, err := strconv.Atoi(raw)
@@ -80,6 +83,13 @@ func LoadTwilioConfig() (TwilioConfig, bool, error) {
 			return TwilioConfig{}, false, errors.New("GB_SMS_DAILY_CAP must be from 1 to 1000")
 		}
 		config.DailyCap = cap
+	}
+	if raw := os.Getenv("GB_SMS_CODE_DAILY_CAP"); raw != "" {
+		cap, err := strconv.Atoi(raw)
+		if err != nil || cap < 1 || cap > maxSMSDailyCap {
+			return TwilioConfig{}, false, errors.New("GB_SMS_CODE_DAILY_CAP must be from 1 to 1000")
+		}
+		config.CodeDailyCap = cap
 	}
 	path := os.Getenv("GB_TWILIO_API_KEY_SECRET_FILE")
 	if path == "" {
@@ -131,10 +141,17 @@ func NewTwilioClient(config TwilioConfig, client *http.Client) (*TwilioClient, e
 	if config.DailyCap < 1 {
 		config.DailyCap = DefaultSMSDailyCap
 	}
+	if config.CodeDailyCap < 1 {
+		config.CodeDailyCap = DefaultSMSCodeDailyCap
+	}
 	return &TwilioClient{config: config, client: client, baseURL: "https://api.twilio.com"}, nil
 }
 
 func (c *TwilioClient) DailyCap() int { return c.config.DailyCap }
+
+// CodeDailyCap limits verification codes separately so they cannot use up the
+// alert cap.
+func (c *TwilioClient) CodeDailyCap() int { return c.config.CodeDailyCap }
 
 // SendSMS sends one message. Errors hold only a Twilio error code or HTTP status,
 // never the phone number, message, or credentials.
@@ -182,7 +199,7 @@ type Quota struct {
 	Kind       string
 	PerAccount int
 	Window     time.Duration
-	// GlobalDaily caps all text messages (codes and alerts) in the past 24 hours.
+	// GlobalDaily caps messages of this Kind in the past 24 hours.
 	GlobalDaily int
 }
 

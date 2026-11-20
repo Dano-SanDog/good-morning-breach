@@ -349,12 +349,13 @@ func (f *fakeContactStore) StartPhoneVerification(_ context.Context, _ int64, ph
 	f.hasV = true
 	return nil
 }
-func (f *fakeContactStore) GetVerification(context.Context, int64) (Verification, bool, error) {
-	v := f.verif
-	v.FailedAttempts = f.failed
-	return v, f.hasV, nil
+func (f *fakeContactStore) ConsumeVerificationAttempt(_ context.Context, _ int64, max int, now time.Time) (Verification, bool, error) {
+	if !f.hasV || f.failed >= max || !now.Before(f.verif.ExpiresAt) {
+		return Verification{}, false, nil
+	}
+	f.failed++
+	return f.verif, true, nil
 }
-func (f *fakeContactStore) RecordFailedCode(context.Context, int64) error { f.failed++; return nil }
 func (f *fakeContactStore) ConfirmPhone(_ context.Context, _ int64, phone string, _ time.Time) error {
 	f.record.Phone, f.record.PhoneVerified = phone, true
 	f.hasV = false
