@@ -229,7 +229,7 @@ Without these, text messages are shown as unavailable. Twilio charges per messag
 - [x] MITRE ATT&CK mapping and email presentation (headline phrase and cue-based tags; shown on the dashboard and in email)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
 - [ ] Complete the dashboard (filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories are implemented; summaries and summary search remain)
-- [ ] Add alert delivery (scheduled delivery with retries is implemented; email, Slack, and text message channels are implemented)
+- [x] Add alert delivery (scheduled delivery with retries is implemented; email, Slack, and text message channels are implemented)
 
 ### Remaining work
 
