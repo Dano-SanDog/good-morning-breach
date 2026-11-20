@@ -37,3 +37,18 @@ func TestNCSCCCCSSecurelistSeedsAreHeadlineOnly(t *testing.T) {
 		t.Error("required attribution text missing")
 	}
 }
+
+func TestCCCSAtomFeedMigrationAvoidsRedirects(t *testing.T) {
+	sql := cccsAtomFeedsMigration
+	for _, id := range []string{"cccs-alerts-advisories", "cccs-news-events-guidance"} {
+		if !strings.Contains(sql, "'"+id+"'") {
+			t.Errorf("missing source %s", id)
+		}
+	}
+	if got := strings.Count(sql, "https://www.cyber.gc.ca/api/cccs/atom/v1/get?feed="); got != 2 {
+		t.Errorf("atom feed URL count = %d, want 2", got)
+	}
+	if strings.Contains(sql, "/rss/") || strings.Contains(sql, "http://") {
+		t.Error("migration must not use redirecting or insecure URLs")
+	}
+}
