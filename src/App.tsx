@@ -68,7 +68,11 @@ type Story = {
   risk: "Critical" | "High" | "Medium" | "Low" | "Informational";
   sentiment: "Negative" | "Neutral" | "Positive";
   attackTechniques: AttackTechnique[];
+  cves: string[];
+  related: RelatedStory[];
 };
+type RelatedStory = { id: number; title: string; url: string; cve: string };
+const cvePattern = /^CVE-[0-9]{4}-[0-9]{4,19}$/;
 const riskValues: ReadonlySet<string> = new Set(["Critical", "High", "Medium", "Low", "Informational"]);
 const sentimentValues: ReadonlySet<string> = new Set(["Negative", "Neutral", "Positive"]);
 type LoginStep = "totp" | "setup";
@@ -152,6 +156,17 @@ function isAttackTechnique(value: unknown): value is AttackTechnique {
     url.hash === "";
 }
 
+function isRelatedStory(value: unknown): value is RelatedStory {
+  return (
+    isRecord(value) &&
+    typeof value.id === "number" &&
+    typeof value.title === "string" &&
+    typeof value.url === "string" &&
+    typeof value.cve === "string" &&
+    cvePattern.test(value.cve)
+  );
+}
+
 export function parseStories(value: unknown): Story[] | null {
   if (!isRecord(value) || !Array.isArray(value.stories)) {
     return null;
@@ -170,6 +185,10 @@ export function parseStories(value: unknown): Story[] | null {
       !isSentiment(item.sentiment) ||
       !Array.isArray(item.attackTechniques) ||
       !item.attackTechniques.every(isAttackTechnique) ||
+      !isStringArray(item.cves) ||
+      !item.cves.every((cve) => cvePattern.test(cve)) ||
+      !Array.isArray(item.related) ||
+      !item.related.every(isRelatedStory) ||
       (typeof item.publishedAt !== "string" && item.publishedAt !== null)
     ) {
       return null;
@@ -185,6 +204,8 @@ export function parseStories(value: unknown): Story[] | null {
       risk: item.risk,
       sentiment: item.sentiment,
       attackTechniques: item.attackTechniques,
+      cves: item.cves,
+      related: item.related,
     });
   }
   return stories;
@@ -1211,7 +1232,29 @@ export function App() {
                         <span className="attack-id">{technique.id}</span>: {technique.name} ({technique.tactics.join(", ")})
                       </a>
                     ))}
+                    {story.cves.map((cve) => (
+                      <span className="tag-chip attack-id" key={cve}>{cve}</span>
+                    ))}
                   </div>
+                  {story.related.length > 0 && (
+                    <details className="story-related">
+                      <summary>Related: {story.related[0]?.cve}</summary>
+                      <ul>
+                        {story.related.map((related) => {
+                          const relatedUrl = getSafeExternalURL(related.url);
+                          return (
+                            <li key={related.id}>
+                              {relatedUrl ? (
+                                <a href={relatedUrl.href} target="_blank" rel="noopener noreferrer">{related.title}</a>
+                              ) : (
+                                related.title
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  )}
                   <dl className="story-metadata">
                     <div>
                       <dt>Source</dt>

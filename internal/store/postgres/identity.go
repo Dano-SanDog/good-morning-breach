@@ -664,7 +664,9 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 			JOIN attack_techniques ON attack_techniques.technique_id = story_techniques.technique_id
 			WHERE story_techniques.story_id = stories.id),
 			'[]'::jsonb
-		)
+		),
+		COALESCE((SELECT array_agg(story_cves.cve_id ORDER BY story_cves.cve_id)
+			FROM story_cves WHERE story_cves.story_id = stories.id), '{}'::text[])
 		FROM stories
 		JOIN story_sources ON story_sources.story_id = stories.id
 		JOIN data_sources ON data_sources.id = story_sources.source_id
@@ -714,6 +716,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 			&story.Sentiment,
 			&story.Categories,
 			&attackTechniquesJSON,
+			&story.CVEs,
 		); err != nil {
 			return nil, fmt.Errorf("scan recent story: %w", err)
 		}
@@ -727,12 +730,61 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 			}
 			story.AttackTechniques[i].URL = url
 		}
+		story.Related = []identity.RelatedStory{}
 		stories = append(stories, story)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read recent stories: %w", err)
 	}
+	rows.Close()
+	if err := s.attachRelatedStories(queryCtx, stories); err != nil {
+		return nil, err
+	}
 	return stories, nil
+}
+
+const maxRelatedPerStory = 5
+
+// attachRelatedStories adds headline-and-link references to other stories that
+// name the same CVE (FR-1.13).
+func (s *IdentityStore) attachRelatedStories(ctx context.Context, stories []identity.Story) error {
+	byID := make(map[int64]*identity.Story)
+	ids := make([]int64, 0, len(stories))
+	for i := range stories {
+		if len(stories[i].CVEs) > 0 {
+			byID[stories[i].ID] = &stories[i]
+			ids = append(ids, stories[i].ID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `SELECT mine.story_id, other.id, other.title, other.canonical_url, mine.cve_id
+		FROM story_cves AS mine
+		JOIN story_cves AS theirs ON theirs.cve_id = mine.cve_id AND theirs.story_id <> mine.story_id
+		JOIN stories AS other ON other.id = theirs.story_id
+		WHERE mine.story_id = ANY($1)
+		ORDER BY mine.story_id, COALESCE(other.published_at, other.created_at) DESC, other.id DESC
+		LIMIT 2000`, ids)
+	if err != nil {
+		return fmt.Errorf("query related stories: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var storyID int64
+		var related identity.RelatedStory
+		if err := rows.Scan(&storyID, &related.ID, &related.Title, &related.URL, &related.CVE); err != nil {
+			return fmt.Errorf("scan related story: %w", err)
+		}
+		story := byID[storyID]
+		if story != nil && len(story.Related) < maxRelatedPerStory {
+			story.Related = append(story.Related, related)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read related stories: %w", err)
+	}
+	return nil
 }
 
 func (s *IdentityStore) ListSourceStatuses(ctx context.Context) ([]identity.SourceStatus, error) {

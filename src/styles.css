@@ -370,7 +370,27 @@ button:disabled {
 }
 
 .attack-id {
+  font-family: "Atkinson Hyperlegible Mono", ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
+}
+
+.story-related {
+  margin: 8px 0 0;
+}
+
+.story-related summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  color: var(--primary, #2e2a8c);
+}
+
+.story-related ul {
+  margin: 0;
+  padding-left: 20px;
+  overflow-wrap: anywhere;
 }
 
 .story-metadata {
