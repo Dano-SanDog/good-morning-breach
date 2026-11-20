@@ -184,7 +184,7 @@ go run ./cmd/smtptest -verify-only            # connect, TLS, sign-in; sends not
 go run ./cmd/smtptest -to me@example.org      # also sends a test message
 ```
 
-The server runs the same connect-and-sign-in check at startup and refuses to start with a clear error if the configuration is invalid or the server rejects it. Passwords, usernames, and message contents are never logged. Messages also depend on your provider accepting the sender address; mail from a domain without matching SPF/DKIM may land in spam.
+The server runs the same connect-and-sign-in check at startup. An invalid configuration stops startup with a clear error, but if the SMTP server is unreachable or rejects the sign-in, the server logs a warning and keeps running (deliveries are retried later). Passwords, usernames, and message contents are never logged. Messages also depend on your provider accepting the sender address; mail from a domain without matching SPF/DKIM may land in spam.
 
 Typical settings (confirm each against the provider's current documentation; these were not tested against live accounts):
 
