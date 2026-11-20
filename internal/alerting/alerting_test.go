@@ -89,24 +89,37 @@ func TestRenderEscapesAndAttributes(t *testing.T) {
 type fakeStore struct {
 	recipients []Recipient
 	stories    []Story
-	successes  int
-	failures   int
+	successes  map[string]int
+	failures   map[string]int
+	causes     []string
 	since      time.Time
+	limits     []int
 }
 
 func (f *fakeStore) ListRecipients(context.Context) ([]Recipient, error) { return f.recipients, nil }
-func (f *fakeStore) StoriesForAlert(_ context.Context, _ []string, since, _ time.Time, _ int) ([]Story, error) {
+func (f *fakeStore) StoriesForAlert(_ context.Context, _ []string, since, _ time.Time, limit int) ([]Story, error) {
 	f.since = since
+	f.limits = append(f.limits, limit)
 	return f.stories, nil
 }
-func (f *fakeStore) RecordSuccess(_ context.Context, _ int64, slot, until, _ time.Time, _ int) error {
-	f.successes++
-	f.recipients[0].State.LastSentSlotAt = &slot
-	f.recipients[0].State.LastAlertAt = &until
+func (f *fakeStore) RecordSuccess(_ context.Context, _ int64, channel string, slot, until, _ time.Time, _ int) error {
+	if f.successes == nil {
+		f.successes = map[string]int{}
+	}
+	f.successes[channel]++
+	r := &f.recipients[0]
+	if r.States == nil {
+		r.States = map[string]State{}
+	}
+	r.States[channel] = State{LastSentSlotAt: &slot, LastAlertAt: &until}
 	return nil
 }
-func (f *fakeStore) RecordFailure(context.Context, int64, time.Time, time.Time, string) error {
-	f.failures++
+func (f *fakeStore) RecordFailure(_ context.Context, _ int64, channel string, _ time.Time, _ time.Time, cause string) error {
+	if f.failures == nil {
+		f.failures = map[string]int{}
+	}
+	f.failures[channel]++
+	f.causes = append(f.causes, cause)
 	return nil
 }
 
@@ -123,14 +136,18 @@ func (f *fakeSender) Send(_ context.Context, to string, _ Message) error {
 	return nil
 }
 
+func emailRecipient() Recipient {
+	return Recipient{
+		AccountID: 1, Email: "a@example.org", Contacts: Contacts{EmailEnabled: true},
+		Settings: Settings{Time: "07:00", TimeZone: "UTC", Days: []int16{2}, MinimumRisk: "Medium"},
+	}
+}
+
 func TestRunOnceSendsOnceAndRecordsFailures(t *testing.T) {
 	now := time.Date(2026, 11, 17, 7, 1, 0, 0, time.UTC)
-	store := &fakeStore{recipients: []Recipient{{
-		AccountID: 1, Email: "a@example.org",
-		Settings: Settings{Time: "07:00", TimeZone: "UTC", Days: []int16{2}, MinimumRisk: "Medium"},
-	}}}
+	store := &fakeStore{recipients: []Recipient{emailRecipient()}}
 	sender := &fakeSender{}
-	service, _ := NewService(store, sender)
+	service, _ := NewService(store, NewEmailChannel(sender))
 
 	if err := service.RunOnce(context.Background(), now); err != nil {
 		t.Fatal(err)
@@ -138,22 +155,21 @@ func TestRunOnceSendsOnceAndRecordsFailures(t *testing.T) {
 	if err := service.RunOnce(context.Background(), now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if len(sender.sent) != 1 || store.successes != 1 {
-		t.Fatalf("sent %d, recorded %d", len(sender.sent), store.successes)
+	if len(sender.sent) != 1 || store.successes["email"] != 1 {
+		t.Fatalf("sent %d, recorded %d", len(sender.sent), store.successes["email"])
 	}
 	if !store.since.Equal(now.Add(-24 * time.Hour)) {
 		t.Fatalf("first alert window starts at %v", store.since)
 	}
 
-	failing := &fakeStore{recipients: []Recipient{store.recipients[0]}}
-	failing.recipients[0].State = State{}
+	failing := &fakeStore{recipients: []Recipient{emailRecipient()}}
 	sender.err = errors.New("boom")
-	service, _ = NewService(failing, sender)
+	service, _ = NewService(failing, NewEmailChannel(sender))
 	if err := service.RunOnce(context.Background(), now); err != nil {
 		t.Fatal(err)
 	}
-	if failing.failures != 1 || failing.successes != 0 {
-		t.Fatalf("failures %d successes %d", failing.failures, failing.successes)
+	if failing.failures["email"] != 1 || failing.successes["email"] != 0 {
+		t.Fatalf("failures %v successes %v", failing.failures, failing.successes)
 	}
 }
 

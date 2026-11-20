@@ -38,7 +38,12 @@ func (s *RetentionStore) DeleteDeliveriesBefore(ctx context.Context, cutoff time
 	if err != nil {
 		return 0, fmt.Errorf("delete expired alert deliveries: %w", err)
 	}
-	return tag.RowsAffected(), nil
+	logTag, err := s.pool.Exec(queryCtx, `DELETE FROM outbound_message_log WHERE id IN (
+		SELECT id FROM outbound_message_log WHERE sent_at < $1 ORDER BY sent_at LIMIT $2)`, cutoff, limit)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired outbound message log: %w", err)
+	}
+	return tag.RowsAffected() + logTag.RowsAffected(), nil
 }
 
 var _ retention.Store = (*RetentionStore)(nil)

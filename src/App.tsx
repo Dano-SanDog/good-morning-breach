@@ -289,6 +289,20 @@ function parseAdminAudit(value: unknown): AdminAuditRecord[] | null {
   return records;
 }
 
+export type ChannelView = {
+  emailEnabled: boolean; slackEnabled: boolean; slackWebhookSaved: boolean;
+};
+
+export function parseChannelView(value: unknown): ChannelView | null {
+  if (!isRecord(value)) return null;
+  const flags = ["emailEnabled", "slackEnabled", "slackWebhookSaved"] as const;
+  for (const flag of flags) if (typeof value[flag] !== "boolean") return null;
+  return {
+    emailEnabled: value.emailEnabled as boolean, slackEnabled: value.slackEnabled as boolean,
+    slackWebhookSaved: value.slackWebhookSaved as boolean,
+  };
+}
+
 export function parseAlertSettings(value: unknown): AlertSettings | null {
   if (!isRecord(value) || typeof value.enabled !== "boolean" ||
       typeof value.time !== "string" || !/^\d{2}:\d{2}$/.test(value.time) ||
@@ -373,6 +387,12 @@ export function App() {
   const [adminAudit, setAdminAudit] = useState<AdminAuditRecord[]>([]);
   const [alertSettings, setAlertSettings] = useState<AlertSettings | null>(null);
   const [alertSaved, setAlertSaved] = useState(false);
+  const [channels, setChannels] = useState<ChannelView | null>(null);
+  const [webhookInput, setWebhookInput] = useState("");
+  const [replacingWebhook, setReplacingWebhook] = useState(false);
+  const [channelNotice, setChannelNotice] = useState("");
+  const [channelError, setChannelError] = useState("");
+  const [channelBusy, setChannelBusy] = useState("");
   const [sourceStatuses, setSourceStatuses] = useState<SourceStatus[] | null>(null);
   const [filterDraft, setFilterDraft] = useState<StoryFilters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<StoryFilters>(emptyFilters);
@@ -414,6 +434,14 @@ export function App() {
     setSourceStatuses(statuses);
   }, []);
 
+  const loadChannels = useCallback(async () => {
+    const response = await fetch("/api/alert-channels", { credentials: "same-origin" });
+    if (!response.ok) throw new Error(await responseError(response));
+    const view = parseChannelView(await response.json());
+    if (!view) throw new Error("The server returned invalid channel settings.");
+    setChannels(view);
+  }, []);
+
   const loadAlertSettings = useCallback(async () => {
     const response = await fetch("/api/alert-settings", { credentials: "same-origin" });
     if (!response.ok) throw new Error(await responseError(response));
@@ -449,7 +477,7 @@ export function App() {
       setMessage("");
       try {
         setFilterDraft(emptyFilters);
-        const requests: Promise<void>[] = [loadStories(emptyFilters, 0), loadAlertSettings()];
+        const requests: Promise<void>[] = [loadStories(emptyFilters, 0), loadAlertSettings(), loadChannels()];
         if (signedInUser.role === "admin") {
           requests.push(loadAdminData(), loadSourceStatuses());
         }
@@ -458,7 +486,7 @@ export function App() {
         setMessage(error instanceof Error ? error.message : "Could not load dashboard data.");
       }
     },
-    [loadAdminData, loadAlertSettings, loadSourceStatuses, loadStories],
+    [loadAdminData, loadAlertSettings, loadChannels, loadSourceStatuses, loadStories],
   );
 
   useEffect(() => {
@@ -616,12 +644,59 @@ export function App() {
       setSourceStatuses(null);
       setAlertSettings(null);
       setAlertSaved(false);
+      setChannels(null);
+      setWebhookInput("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function channelAction(label: string, run: () => Promise<string>) {
+    setChannelBusy(label);
+    setChannelError("");
+    setChannelNotice("");
+    try {
+      setChannelNotice(await run());
+      await loadChannels();
+    } catch (error) {
+      setChannelError(error instanceof Error ? error.message : "Could not update delivery channels.");
+    } finally {
+      setChannelBusy("");
+    }
+  }
+
+  async function postChannel(path: string, method: "PUT" | "POST", body: Record<string, unknown>) {
+    const response = await mutateJSON(path, method, body);
+    if (!response.ok) throw new Error(await responseError(response));
+    return response;
+  }
+
+  function saveChannelFlags(next: Partial<Pick<ChannelView, "emailEnabled" | "slackEnabled">>) {
+    if (!channels) return;
+    const merged = { ...channels, ...next };
+    void channelAction("Saving…", async () => {
+      await postChannel("/api/alert-channels", "PUT", {
+        emailEnabled: merged.emailEnabled, slackEnabled: merged.slackEnabled,
+      });
+      return "Delivery channels saved.";
+    });
+  }
+
+  function handleSaveWebhook(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const webhook = webhookInput;
+    void channelAction("Sending test…", async () => {
+      const response = await postChannel("/api/alert-channels/slack", "POST", { webhook });
+      const result: unknown = await response.json();
+      setWebhookInput("");
+      setReplacingWebhook(false);
+      return isRecord(result) && result.testFailed === true
+        ? "Slack webhook saved, but the test message failed. Check the webhook and try again."
+        : "Slack webhook saved. A test message was sent.";
+    });
   }
 
   async function handleSaveAlertSettings(event: FormEvent<HTMLFormElement>) {
@@ -846,13 +921,13 @@ export function App() {
         </div>
         {message && <p className="message" role="alert">{message}</p>}
         <details className="alert-settings">
-          <summary>Email alert preferences</summary>
-          <p>These preferences are saved for future use. Email delivery is not available yet; no alerts will be sent.</p>
+          <summary>Alert preferences</summary>
+          <p>Choose when your morning alert is sent and where it is delivered.</p>
           {alertSettings === null ? <p className="muted">Alert settings are unavailable.</p> : (
             <form onSubmit={handleSaveAlertSettings}>
               <label className="alert-toggle"><input type="checkbox" checked={alertSettings.enabled} onChange={(event) => {
                 setAlertSaved(false); setAlertSettings({ ...alertSettings, enabled: event.target.checked });
-              }} /> Enable email alerts when delivery becomes available</label>
+              }} /> Send my morning alert</label>
               <div className="alert-settings-fields">
                 <label>Time<input type="time" required value={alertSettings.time} onChange={(event) => {
                   setAlertSaved(false); setAlertSettings({ ...alertSettings, time: event.target.value });
@@ -879,8 +954,34 @@ export function App() {
               </fieldset>
               {alertSettings.days.length === 0 && <p className="message" role="alert">Select at least one day.</p>}
               <button type="submit" className="primary-button" disabled={busy || alertSettings.days.length === 0}>Save preferences</button>
-              {alertSaved && <p role="status">Preferences saved. Email alerts are not available yet.</p>}
+              {alertSaved && <p role="status">Preferences saved.</p>}
             </form>
+          )}
+          {channels && (
+            <section className="alert-channels" aria-label="Delivery channels">
+              <h3>Delivery channels</h3>
+              <label className="alert-toggle"><input type="checkbox" checked={channels.emailEnabled} disabled={channelBusy !== ""}
+                onChange={(event) => saveChannelFlags({ emailEnabled: event.target.checked })} /> Email</label>
+              <label className="alert-toggle"><input type="checkbox" checked={channels.slackEnabled}
+                disabled={channelBusy !== "" || !channels.slackWebhookSaved}
+                onChange={(event) => saveChannelFlags({ slackEnabled: event.target.checked })} /> Slack</label>
+              {!channels.slackWebhookSaved && <p className="muted">Save a Slack webhook below to turn on Slack.</p>}
+
+              {channels.slackWebhookSaved && !replacingWebhook ? (
+                <p>Slack webhook saved. <button type="button" className="secondary-button" onClick={() => setReplacingWebhook(true)}>Replace</button></p>
+              ) : (
+                <form onSubmit={handleSaveWebhook}>
+                  <label>Slack incoming webhook address
+                    <input type="password" autoComplete="off" required maxLength={300} value={webhookInput}
+                      onChange={(event) => setWebhookInput(event.target.value)} />
+                  </label>
+                  <button type="submit" className="primary-button" disabled={channelBusy !== ""}>{channelBusy === "Sending test…" ? "Sending test…" : "Save and send test"}</button>
+                </form>
+              )}
+
+              {channelNotice && <p role="status">{channelNotice}</p>}
+              {channelError && <p className="message" role="alert">Error: {channelError}</p>}
+            </section>
           )}
         </details>
         {user?.role === "admin" && (

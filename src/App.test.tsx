@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import { CatalogAdmin, hasLicenceRecord, parseCatalogCategories, parseCatalogSources, sourceRequestBody } from "./CatalogAdmin";
-import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
+import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseChannelView, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
   const markup = renderToStaticMarkup(createElement(App));
@@ -192,4 +192,14 @@ test("source request body converts hours to seconds and licence gate checks both
 
 test("catalog admin renders without markup injection", () => {
   expect(renderToStaticMarkup(createElement(CatalogAdmin, {}))).toContain("Categories and sources");
+});
+
+test("validates channel settings received from the server", () => {
+  const good = {
+    emailEnabled: true, slackEnabled: false, slackWebhookSaved: true,
+  };
+  expect(parseChannelView(good)).toEqual(good);
+  expect(parseChannelView({ ...good, slackWebhookSaved: "yes" })).toBeNull();
+  expect(parseChannelView({ ...good, emailEnabled: 1 })).toBeNull();
+  expect(parseChannelView(null)).toBeNull();
 });

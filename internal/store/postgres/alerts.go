@@ -24,11 +24,11 @@ func (s *AlertStore) ListRecipients(ctx context.Context) ([]alerting.Recipient, 
 	defer cancel()
 	rows, err := s.pool.Query(queryCtx, `SELECT accounts.id, accounts.email,
 		settings.alert_time, settings.time_zone, settings.days, settings.minimum_risk,
-		state.last_sent_slot_at, state.last_alert_at, state.retry_slot_at,
-		COALESCE(state.retry_attempts, 0), state.last_attempt_at
+		COALESCE(channels.email_enabled, true), COALESCE(channels.slack_enabled, false),
+		channels.slack_webhook_sealed
 		FROM alert_settings AS settings
 		JOIN accounts ON accounts.id = settings.account_id
-		LEFT JOIN alert_state AS state ON state.account_id = accounts.id
+		LEFT JOIN alert_channel_settings AS channels ON channels.account_id = accounts.id
 		WHERE settings.enabled AND accounts.enabled
 		ORDER BY accounts.id`)
 	if err != nil {
@@ -36,18 +36,41 @@ func (s *AlertStore) ListRecipients(ctx context.Context) ([]alerting.Recipient, 
 	}
 	defer rows.Close()
 	var recipients []alerting.Recipient
+	index := make(map[int64]int)
 	for rows.Next() {
-		var r alerting.Recipient
+		r := alerting.Recipient{States: make(map[string]alerting.State)}
+		c := &r.Contacts
 		if err := rows.Scan(&r.AccountID, &r.Email,
 			&r.Settings.Time, &r.Settings.TimeZone, &r.Settings.Days, &r.Settings.MinimumRisk,
-			&r.State.LastSentSlotAt, &r.State.LastAlertAt, &r.State.RetrySlotAt,
-			&r.State.RetryAttempts, &r.State.LastAttemptAt); err != nil {
+			&c.EmailEnabled, &c.SlackEnabled, &c.SlackWebhookSealed); err != nil {
 			return nil, fmt.Errorf("scan alert recipient: %w", err)
 		}
+		index[r.AccountID] = len(recipients)
 		recipients = append(recipients, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read alert recipients: %w", err)
+	}
+	stateRows, err := s.pool.Query(queryCtx, `SELECT account_id, channel, last_sent_slot_at, last_alert_at,
+		retry_slot_at, retry_attempts, last_attempt_at FROM alert_channel_state`)
+	if err != nil {
+		return nil, fmt.Errorf("query alert channel state: %w", err)
+	}
+	defer stateRows.Close()
+	for stateRows.Next() {
+		var accountID int64
+		var channel string
+		var state alerting.State
+		if err := stateRows.Scan(&accountID, &channel, &state.LastSentSlotAt, &state.LastAlertAt,
+			&state.RetrySlotAt, &state.RetryAttempts, &state.LastAttemptAt); err != nil {
+			return nil, fmt.Errorf("scan alert channel state: %w", err)
+		}
+		if i, ok := index[accountID]; ok {
+			recipients[i].States[channel] = state
+		}
+	}
+	if err := stateRows.Err(); err != nil {
+		return nil, fmt.Errorf("read alert channel state: %w", err)
 	}
 	return recipients, nil
 }
@@ -177,7 +200,7 @@ func (s *AlertStore) attachRelated(ctx context.Context, stories []alerting.Story
 	return nil
 }
 
-func (s *AlertStore) RecordSuccess(ctx context.Context, accountID int64, slot, until, attemptedAt time.Time, stories int) error {
+func (s *AlertStore) RecordSuccess(ctx context.Context, accountID int64, channel string, slot, until, attemptedAt time.Time, stories int) error {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	tx, err := s.pool.Begin(queryCtx)
@@ -185,23 +208,23 @@ func (s *AlertStore) RecordSuccess(ctx context.Context, accountID int64, slot, u
 		return fmt.Errorf("begin alert success record: %w", err)
 	}
 	defer rollback(tx)
-	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_state
-		(account_id, last_sent_slot_at, last_alert_at, retry_slot_at, retry_attempts, last_attempt_at)
-		VALUES ($1, $2, $3, NULL, 0, $4)
-		ON CONFLICT (account_id) DO UPDATE SET last_sent_slot_at = EXCLUDED.last_sent_slot_at,
+	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_channel_state
+		(account_id, channel, last_sent_slot_at, last_alert_at, retry_slot_at, retry_attempts, last_attempt_at)
+		VALUES ($1, $5, $2, $3, NULL, 0, $4)
+		ON CONFLICT (account_id, channel) DO UPDATE SET last_sent_slot_at = EXCLUDED.last_sent_slot_at,
 		last_alert_at = EXCLUDED.last_alert_at, retry_slot_at = NULL, retry_attempts = 0,
-		last_attempt_at = EXCLUDED.last_attempt_at`, accountID, slot, until, attemptedAt); err != nil {
+		last_attempt_at = EXCLUDED.last_attempt_at`, accountID, slot, until, attemptedAt, channel); err != nil {
 		return fmt.Errorf("save alert state: %w", err)
 	}
 	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_deliveries
 		(account_id, channel, slot_at, attempted_at, outcome, story_count)
-		VALUES ($1, 'email', $2, $3, 'success', $4)`, accountID, slot, attemptedAt, stories); err != nil {
+		VALUES ($1, $5, $2, $3, 'success', $4)`, accountID, slot, attemptedAt, stories, channel); err != nil {
 		return fmt.Errorf("save alert delivery record: %w", err)
 	}
 	return tx.Commit(queryCtx)
 }
 
-func (s *AlertStore) RecordFailure(ctx context.Context, accountID int64, slot, attemptedAt time.Time, cause string) error {
+func (s *AlertStore) RecordFailure(ctx context.Context, accountID int64, channel string, slot, attemptedAt time.Time, cause string) error {
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	if len(cause) > 500 {
@@ -212,19 +235,19 @@ func (s *AlertStore) RecordFailure(ctx context.Context, accountID int64, slot, a
 		return fmt.Errorf("begin alert failure record: %w", err)
 	}
 	defer rollback(tx)
-	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_state
-		(account_id, retry_slot_at, retry_attempts, last_attempt_at)
-		VALUES ($1, $2, 1, $3)
-		ON CONFLICT (account_id) DO UPDATE SET
-		retry_attempts = CASE WHEN alert_state.retry_slot_at = EXCLUDED.retry_slot_at
-			THEN alert_state.retry_attempts + 1 ELSE 1 END,
+	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_channel_state
+		(account_id, channel, retry_slot_at, retry_attempts, last_attempt_at)
+		VALUES ($1, $4, $2, 1, $3)
+		ON CONFLICT (account_id, channel) DO UPDATE SET
+		retry_attempts = CASE WHEN alert_channel_state.retry_slot_at = EXCLUDED.retry_slot_at
+			THEN alert_channel_state.retry_attempts + 1 ELSE 1 END,
 		retry_slot_at = EXCLUDED.retry_slot_at,
-		last_attempt_at = EXCLUDED.last_attempt_at`, accountID, slot, attemptedAt); err != nil {
+		last_attempt_at = EXCLUDED.last_attempt_at`, accountID, slot, attemptedAt, channel); err != nil {
 		return fmt.Errorf("save alert retry state: %w", err)
 	}
 	if _, err := tx.Exec(queryCtx, `INSERT INTO alert_deliveries
 		(account_id, channel, slot_at, attempted_at, outcome, story_count, failure_cause)
-		VALUES ($1, 'email', $2, $3, 'failure', 0, $4)`, accountID, slot, attemptedAt, cause); err != nil {
+		VALUES ($1, $5, $2, $3, 'failure', 0, $4)`, accountID, slot, attemptedAt, cause, channel); err != nil {
 		return fmt.Errorf("save alert delivery record: %w", err)
 	}
 	return tx.Commit(queryCtx)
