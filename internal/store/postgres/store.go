@@ -98,7 +98,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 
 	rows, err := s.pool.Query(queryCtx, `SELECT
 		id, name, address, license_name, license_url, permitted_use,
-		attribution, content_policy, poll_interval_seconds, last_success_at, format, require_complete_title
+		attribution, content_policy, poll_interval_seconds, last_success_at, GREATEST(last_success_at, last_failure_at), format, require_complete_title
 		FROM data_sources
 		WHERE enabled
 		ORDER BY id`)
@@ -111,7 +111,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 	for rows.Next() {
 		var source ingest.Source
 		var pollIntervalSeconds int64
-		var lastSuccessAt *time.Time
+		var lastSuccessAt, lastAttemptAt *time.Time
 		if err := rows.Scan(
 			&source.ID,
 			&source.Name,
@@ -123,6 +123,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 			&source.ContentPolicy,
 			&pollIntervalSeconds,
 			&lastSuccessAt,
+			&lastAttemptAt,
 			&source.Format,
 			&source.CompleteTitles,
 		); err != nil {
@@ -130,6 +131,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 		}
 		source.PollInterval = time.Duration(pollIntervalSeconds) * time.Second
 		source.LastSuccessAt = lastSuccessAt
+		source.LastAttemptAt = lastAttemptAt
 		sources = append(sources, source)
 	}
 	if err := rows.Err(); err != nil {

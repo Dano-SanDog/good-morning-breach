@@ -42,6 +42,7 @@ type Source struct {
 	ContentPolicy  ContentPolicy
 	PollInterval   time.Duration
 	LastSuccessAt  *time.Time
+	LastAttemptAt  *time.Time // latest success or failure; gates the next fetch
 }
 
 func (s Source) Validate() error {
