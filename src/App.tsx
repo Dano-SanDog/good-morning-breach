@@ -1038,6 +1038,115 @@ export function App() {
             </section>
           )}
         </details>
+        <details className="story-filters">
+          <summary>Filter stories</summary>
+          <form onSubmit={(event) => { event.preventDefault(); void applyStoryFilters(filterDraft, 0); }}>
+            <label>Search titles<input type="search" maxLength={200} value={filterDraft.search} onChange={(event) => setFilterDraft({ ...filterDraft, search: event.target.value })} /></label>
+            <label>Category<input maxLength={200} placeholder="Exact category name" value={filterDraft.category} onChange={(event) => setFilterDraft({ ...filterDraft, category: event.target.value })} /></label>
+            <label>Risk<select value={filterDraft.risk} onChange={(event) => setFilterDraft({ ...filterDraft, risk: event.target.value })}>
+              <option value="">All risks</option>
+              {Array.from(riskValues).map((risk) => <option key={risk} value={risk}>{risk}</option>)}
+            </select></label>
+            <label>Source<input maxLength={200} placeholder="Exact source name" value={filterDraft.source} onChange={(event) => setFilterDraft({ ...filterDraft, source: event.target.value })} /></label>
+            <label>ATT&amp;CK tactic or technique<input maxLength={200} placeholder="Name or ID, e.g. T1190" value={filterDraft.attack} onChange={(event) => setFilterDraft({ ...filterDraft, attack: event.target.value })} /></label>
+            <label>From date<input type="date" value={filterDraft.start} onChange={(event) => setFilterDraft({ ...filterDraft, start: event.target.value })} /></label>
+            <label>Through date<input type="date" value={filterDraft.end} onChange={(event) => setFilterDraft({ ...filterDraft, end: event.target.value })} /></label>
+            <button type="submit" className="primary-button" disabled={busy}>Apply filters</button>
+          </form>
+        </details>
+        {Object.values(appliedFilters).some(Boolean) && (
+          <div className="active-filters" aria-label="Active filters">
+            {(["search", "category", "risk", "source", "attack"] as const).filter((key) => appliedFilters[key]).map((key) => (
+              <button type="button" className="filter-chip" key={key} disabled={busy} onClick={() => {
+                const next = { ...appliedFilters, [key]: "" };
+                setFilterDraft(next);
+                void applyStoryFilters(next, 0);
+              }}>Remove {key}: {appliedFilters[key]} ×</button>
+            ))}
+            {appliedFilters.start && <button type="button" className="filter-chip" disabled={busy} onClick={() => {
+              const next = { ...appliedFilters, start: "", end: "" };
+              setFilterDraft(next);
+              void applyStoryFilters(next, 0);
+            }}>Remove dates: {appliedFilters.start}–{appliedFilters.end} ×</button>}
+          </div>
+        )}
+        {stories.length === 0 ? (
+          <section className="empty-state" aria-live="polite">
+            <h2>No matching stories</h2>
+            <p>Change the filters or check for new stories.</p>
+          </section>
+        ) : (
+          <ol className="story-ledger">
+            {stories.map((story) => (
+              <li className={`story-row risk-${story.risk.toLowerCase()}`} key={story.id}>
+                <span className="story-spine" aria-hidden="true" />
+                <div className="story-content">
+                  <ExternalStoryLink story={story} />
+                  <div className="story-analysis">
+                    <span className={`risk-chip risk-${story.risk.toLowerCase()}`}>Risk: {story.risk}</span>
+                    <span className="sentiment-label">Tone: {story.sentiment}</span>
+                    {story.categories.map((category) => (
+                      <span className="tag-chip" key={category}>{category}</span>
+                    ))}
+                    {story.attackTechniques.map((technique) => (
+                      <a className="tag-chip attack-chip" href={technique.url} key={technique.id} target="_blank" rel="noopener noreferrer">
+                        <span className="attack-id">{technique.id}</span>: {technique.name} ({technique.tactics.join(", ")})
+                      </a>
+                    ))}
+                    {story.cves.map((cve) => (
+                      <span className="tag-chip attack-id" key={cve}>{cve}</span>
+                    ))}
+                  </div>
+                  {story.related.length > 0 && (
+                    <details className="story-related">
+                      <summary>Related: {story.related[0]?.cve}</summary>
+                      <ul>
+                        {story.related.map((related) => {
+                          const relatedUrl = getSafeExternalURL(related.url);
+                          return (
+                            <li key={related.id}>
+                              {relatedUrl ? (
+                                <a href={relatedUrl.href} target="_blank" rel="noopener noreferrer">{related.title}</a>
+                              ) : (
+                                related.title
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </details>
+                  )}
+                  <dl className="story-metadata">
+                    <div>
+                      <dt>Source</dt>
+                      <dd>{story.sources.join(", ")}</dd>
+                    </div>
+                    <div>
+                      <dt>Published</dt>
+                      <dd>
+                        {story.publishedAt
+                          ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(story.publishedAt))
+                          : "Time unavailable"}
+                      </dd>
+                    </div>
+                  </dl>
+                  {story.attributions.length > 0 && (
+                    <div className="story-attributions">
+                      {story.attributions.map((attribution) => (
+                        <p key={attribution}>{attribution}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+        {(storyOffset > 0 || hasMoreStories) && <nav className="story-pagination" aria-label="Story pages">
+          <button type="button" className="table-button" disabled={busy || storyOffset === 0} onClick={() => void applyStoryFilters(appliedFilters, Math.max(0, storyOffset - 100))}>Previous</button>
+          <span>Page {Math.floor(storyOffset / 100) + 1}</span>
+          <button type="button" className="table-button" disabled={busy || !hasMoreStories} onClick={() => void applyStoryFilters(appliedFilters, storyOffset + 100)}>Next</button>
+        </nav>}
         {user?.role === "admin" && (
           <section className="source-health" aria-labelledby="source-health-heading">
             <h2 id="source-health-heading">Source health</h2>
@@ -1194,115 +1303,6 @@ export function App() {
           </section>
         )}
         {user?.role === "admin" && <CatalogAdmin onChanged={() => void loadSourceStatuses().catch(() => undefined)} />}
-        <details className="story-filters">
-          <summary>Filter stories</summary>
-          <form onSubmit={(event) => { event.preventDefault(); void applyStoryFilters(filterDraft, 0); }}>
-            <label>Search titles<input type="search" maxLength={200} value={filterDraft.search} onChange={(event) => setFilterDraft({ ...filterDraft, search: event.target.value })} /></label>
-            <label>Category<input maxLength={200} placeholder="Exact category name" value={filterDraft.category} onChange={(event) => setFilterDraft({ ...filterDraft, category: event.target.value })} /></label>
-            <label>Risk<select value={filterDraft.risk} onChange={(event) => setFilterDraft({ ...filterDraft, risk: event.target.value })}>
-              <option value="">All risks</option>
-              {Array.from(riskValues).map((risk) => <option key={risk} value={risk}>{risk}</option>)}
-            </select></label>
-            <label>Source<input maxLength={200} placeholder="Exact source name" value={filterDraft.source} onChange={(event) => setFilterDraft({ ...filterDraft, source: event.target.value })} /></label>
-            <label>ATT&amp;CK tactic or technique<input maxLength={200} placeholder="Name or ID, e.g. T1190" value={filterDraft.attack} onChange={(event) => setFilterDraft({ ...filterDraft, attack: event.target.value })} /></label>
-            <label>From date<input type="date" value={filterDraft.start} onChange={(event) => setFilterDraft({ ...filterDraft, start: event.target.value })} /></label>
-            <label>Through date<input type="date" value={filterDraft.end} onChange={(event) => setFilterDraft({ ...filterDraft, end: event.target.value })} /></label>
-            <button type="submit" className="primary-button" disabled={busy}>Apply filters</button>
-          </form>
-        </details>
-        {Object.values(appliedFilters).some(Boolean) && (
-          <div className="active-filters" aria-label="Active filters">
-            {(["search", "category", "risk", "source", "attack"] as const).filter((key) => appliedFilters[key]).map((key) => (
-              <button type="button" className="filter-chip" key={key} disabled={busy} onClick={() => {
-                const next = { ...appliedFilters, [key]: "" };
-                setFilterDraft(next);
-                void applyStoryFilters(next, 0);
-              }}>Remove {key}: {appliedFilters[key]} ×</button>
-            ))}
-            {appliedFilters.start && <button type="button" className="filter-chip" disabled={busy} onClick={() => {
-              const next = { ...appliedFilters, start: "", end: "" };
-              setFilterDraft(next);
-              void applyStoryFilters(next, 0);
-            }}>Remove dates: {appliedFilters.start}–{appliedFilters.end} ×</button>}
-          </div>
-        )}
-        {stories.length === 0 ? (
-          <section className="empty-state" aria-live="polite">
-            <h2>No matching stories</h2>
-            <p>Change the filters or check for new stories.</p>
-          </section>
-        ) : (
-          <ol className="story-ledger">
-            {stories.map((story) => (
-              <li className={`story-row risk-${story.risk.toLowerCase()}`} key={story.id}>
-                <span className="story-spine" aria-hidden="true" />
-                <div className="story-content">
-                  <ExternalStoryLink story={story} />
-                  <div className="story-analysis">
-                    <span className={`risk-chip risk-${story.risk.toLowerCase()}`}>Risk: {story.risk}</span>
-                    <span className="sentiment-label">Tone: {story.sentiment}</span>
-                    {story.categories.map((category) => (
-                      <span className="tag-chip" key={category}>{category}</span>
-                    ))}
-                    {story.attackTechniques.map((technique) => (
-                      <a className="tag-chip attack-chip" href={technique.url} key={technique.id} target="_blank" rel="noopener noreferrer">
-                        <span className="attack-id">{technique.id}</span>: {technique.name} ({technique.tactics.join(", ")})
-                      </a>
-                    ))}
-                    {story.cves.map((cve) => (
-                      <span className="tag-chip attack-id" key={cve}>{cve}</span>
-                    ))}
-                  </div>
-                  {story.related.length > 0 && (
-                    <details className="story-related">
-                      <summary>Related: {story.related[0]?.cve}</summary>
-                      <ul>
-                        {story.related.map((related) => {
-                          const relatedUrl = getSafeExternalURL(related.url);
-                          return (
-                            <li key={related.id}>
-                              {relatedUrl ? (
-                                <a href={relatedUrl.href} target="_blank" rel="noopener noreferrer">{related.title}</a>
-                              ) : (
-                                related.title
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </details>
-                  )}
-                  <dl className="story-metadata">
-                    <div>
-                      <dt>Source</dt>
-                      <dd>{story.sources.join(", ")}</dd>
-                    </div>
-                    <div>
-                      <dt>Published</dt>
-                      <dd>
-                        {story.publishedAt
-                          ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(story.publishedAt))
-                          : "Time unavailable"}
-                      </dd>
-                    </div>
-                  </dl>
-                  {story.attributions.length > 0 && (
-                    <div className="story-attributions">
-                      {story.attributions.map((attribution) => (
-                        <p key={attribution}>{attribution}</p>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-        {(storyOffset > 0 || hasMoreStories) && <nav className="story-pagination" aria-label="Story pages">
-          <button type="button" className="table-button" disabled={busy || storyOffset === 0} onClick={() => void applyStoryFilters(appliedFilters, Math.max(0, storyOffset - 100))}>Previous</button>
-          <span>Page {Math.floor(storyOffset / 100) + 1}</span>
-          <button type="button" className="table-button" disabled={busy || !hasMoreStories} onClick={() => void applyStoryFilters(appliedFilters, storyOffset + 100)}>Next</button>
-        </nav>}
       </main>
       <DashboardNotices />
     </div>
