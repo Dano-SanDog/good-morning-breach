@@ -478,7 +478,7 @@ func (s *IdentityStore) TouchSession(ctx context.Context, tokenHash []byte, now 
 	tag, err := s.pool.Exec(queryCtx, `UPDATE auth_sessions SET last_seen_at = $2
 		WHERE token_hash = $1
 			AND expires_at > $2
-			AND last_seen_at > $2 - interval '30 minutes'
+			AND last_seen_at > $2::timestamptz - interval '30 minutes'
 			AND EXISTS (
 				SELECT 1 FROM accounts WHERE accounts.id = auth_sessions.account_id AND accounts.enabled
 			)`, tokenHash, now)
