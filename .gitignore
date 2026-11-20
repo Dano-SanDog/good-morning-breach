@@ -11,3 +11,4 @@ coverage.out
 !.env.example
 .certs/
 good-morning-breach
+.DS_Store
