@@ -7,12 +7,12 @@ Sources: the project notes and the requirements interview. In the interview, the
 ## Required Requirement Inputs
 
 - **Project purpose:** A morning cybersecurity news feed for private, non-commercial, personal use.
-- **Users and actors:** Admin; User. External actors: data sources (see FR-1.14); email, text message, and Slack delivery services.
+- **Users and actors:** Admin; User. External actors: data sources (see FR-1.14); email and Slack delivery services.
 - **Core workflows:** Collect news from data sources; categorize stories; analyze sentiment and risk; tag stories with MITRE ATT&CK techniques; send the morning alert; show stories on a dashboard; log in; manage users; manage data sources; manage alert settings.
 - **Data entities:** Story; data source (with license record); category; risk level; sentiment value; ATT&CK technique tag; morning alert; alert delivery record; user account; role; alert settings.
-- **External integrations:** other open-source cyber news sources; MITRE ATT&CK; email; text message (SMS); Slack.
+- **External integrations:** other open-source cyber news sources; MITRE ATT&CK; email; Slack. Text message (SMS) was deliberately dropped; Slack plus the Slack phone app covers mobile push.
 - **Authentication and roles:** Closed service. Every function needs login. Email address and password only (the TOTP second factor was withdrawn by owner decision). Roles: admin, user. No self sign-up.
-- **Regulatory or privacy constraints:** Use only ethical data sources and honor their licensing. The service is private and non-commercial, for personal use only. Contact data (email, phone number, Slack webhook) is used only to send alerts.
+- **Regulatory or privacy constraints:** Use only ethical data sources and honor their licensing. The service is private and non-commercial, for personal use only. Contact data (email, Slack webhook) is used only to send alerts.
 - **Target surfaces (web UI, APIs, background jobs):** Web dashboard; background jobs for collection, analysis, and the morning alert. Public APIs: none.
 
 ## Functional Requirements
@@ -62,19 +62,19 @@ Sources: the project notes and the requirements interview. In the interview, the
 
 - **FR-4.1** The system MUST send a morning alert to users.
 - **FR-4.2** The system MUST be able to send the morning alert by email.
-- **FR-4.3** The system MUST be able to send the morning alert by text message.
+- **FR-4.3** WITHDRAWN: text message (SMS) alerts were deliberately dropped by owner decision. Slack plus the Slack phone app covers mobile push. *(Number kept for traceability.)*
 - **FR-4.4** The system MUST be able to send the morning alert by Slack.
 - **FR-4.5** The system MUST send the morning alert at 07:00 in the time zone of the user, every day, by default. *(delegated decision)*
 - **FR-4.6** A user MUST be able to change the alert time, the time zone, and the days of the week for their own alert. *(delegated decision)*
-- **FR-4.7** A user MUST be able to select one or more alert channels (email, text message, Slack) for their own alert. *(delegated decision)*
+- **FR-4.7** A user MUST be able to select one or more alert channels (email, Slack) for their own alert. *(delegated decision)*
 - **FR-4.8** A user MUST be able to stop and start their own alert. *(delegated decision)*
 - **FR-4.9** A user MUST be able to set a minimum risk level for their own alert. The default MUST be Medium. *(delegated decision)*
 - **FR-4.10** The alert MUST contain only stories that the system collected after the previous alert to that user and that are at or above the minimum risk level of that user. *(delegated decision)*
 - **FR-4.11** The system MUST sort alert stories by risk value, highest first, then by publication time, newest first. *(delegated decision)*
 - **FR-4.12** The email and Slack alerts MUST contain a maximum of 10 stories. Each story MUST show the title, source name, risk value, categories, a short summary where FR-8.8 permits it, and a link to the original source. *(delegated decision)*
-- **FR-4.13** The text message alert MUST contain a maximum of 3 story titles with risk values and a link to the dashboard. *(delegated decision)*
+- **FR-4.13** WITHDRAWN: text message alerts are out of scope. *(Number kept for traceability.)*
 - **FR-4.14** When no story meets the criteria, the system MUST send a short alert that tells the user that there are no new stories at or above their risk level. *(delegated decision)*
-- **FR-4.15** The system MUST NOT send a text message alert to a phone number until the user enters a verification code that the system sent to that number. *(delegated decision)*
+- **FR-4.15** WITHDRAWN: phone number verification is out of scope with SMS. *(Number kept for traceability.)*
 - **FR-4.16** The system MUST send the alert to Slack through a Slack incoming webhook that the user supplies. The system MUST reject a webhook address that is not a Slack incoming webhook address. *(delegated decision)*
 - **FR-4.17** When a user saves a Slack webhook, the system MUST send a test message to it and tell the user if the test failed. *(delegated decision)*
 - **FR-4.18** When a delivery fails, the system MUST try again up to 3 times in 30 minutes. A failure on one channel MUST NOT stop delivery on the other channels. *(delegated decision)*
@@ -125,7 +125,7 @@ Sources: the project notes and the requirements interview. In the interview, the
 - **FR-8.8** For each source, the admin MUST record which content the system may store and show: full text, verbatim excerpt, system summary, or headline and link only. The system MUST obey that record on the dashboard and in every alert. *(delegated decision, from research)*
 - **FR-8.9** The system MUST NOT generate a summary for a source whose license does not permit changes to the content (for example, Kaspersky Securelist permits only verbatim excerpts). *(delegated decision, from research)*
 - **FR-8.10** The system MUST show these notices on the dashboard: "This product uses the NVD API but is not endorsed or certified by the NVD."; "© 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation." with a link to the ATT&CK terms of use. *(delegated decision, from research)*
-- **FR-8.11** The system MUST show a credit and link to haveibeenpwned.com on every surface (dashboard, email, Slack, text message) that shows Have I Been Pwned data. *(delegated decision, from research)*
+- **FR-8.11** The system MUST show a credit and link to haveibeenpwned.com on every surface (dashboard, email, Slack) that shows Have I Been Pwned data. *(delegated decision, from research)*
 - **FR-8.12** The system MUST mark a summary of SANS Internet Storm Center content with the CC BY-NC-SA 4.0 license. *(delegated decision, from research)*
 - **FR-8.13** The system MUST NOT show the logo or seal of a government source, and MUST NOT state that a source endorses the service. *(delegated decision, from research)*
 
@@ -135,7 +135,7 @@ Sources: the project notes and the requirements interview. In the interview, the
 - **FR-9.2** The system MUST NOT permit self sign-up. *(delegated decision)*
 - **FR-9.3** The system MUST NOT permit an admin to remove the admin role from the last active admin account. *(delegated decision)*
 - **FR-9.4** The system MUST refuse login for a disabled account. *(delegated decision)*
-- **FR-9.5** When an admin deletes an account, the system MUST delete the email address, phone number, and Slack webhook of that account. *(delegated decision)*
+- **FR-9.5** When an admin deletes an account, the system MUST delete the email address and Slack webhook of that account. *(delegated decision)*
 - **FR-9.6** The system MUST record each admin action (admin, action, target, time). An admin MUST be able to view this record. *(delegated decision)*
 - **FR-9.7** The system MUST create the first admin account during installation. *(delegated decision)*
 
@@ -161,7 +161,7 @@ Sources: the project notes and the requirements interview. In the interview, the
 ### 3. Security and Privacy
 
 - **NFR-3.1** The system MUST use only HTTPS for all user access. *(delegated decision)*
-- **NFR-3.2** The system MUST use contact data (email address, phone number, Slack webhook) only to send alerts and password reset messages. *(delegated decision)*
+- **NFR-3.2** The system MUST use contact data (email address, Slack webhook) only to send alerts and password reset messages. *(delegated decision)*
 - **NFR-3.3** The system MUST NOT show passwords or Slack webhook addresses after they are saved. *(delegated decision)*
 - **NFR-3.4** The system MUST treat all collected content as not trusted. Collected content MUST NOT run as code in the dashboard, email, or Slack message. *(delegated decision)*
 

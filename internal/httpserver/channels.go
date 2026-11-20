@@ -19,8 +19,6 @@ func registerChannelRoutes(router *gin.Engine, service *identity.Service, contac
 	router.GET("/api/alert-channels", h.view)
 	router.PUT("/api/alert-channels", requireCSRF(), h.save)
 	router.POST("/api/alert-channels/slack", requireCSRF(), h.saveSlack)
-	router.POST("/api/alert-channels/phone", requireCSRF(), h.startPhone)
-	router.POST("/api/alert-channels/phone/verify", requireCSRF(), h.verifyPhone)
 }
 
 // account takes the account ID from the session only, never from the request
@@ -46,12 +44,6 @@ func writeChannelError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid alert channel settings."})
 	case errors.Is(err, alerting.ErrRateLimited):
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Too many requests. Try again later."})
-	case errors.Is(err, alerting.ErrSMSUnavailable):
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Text messages are not set up on this server."})
-	case errors.Is(err, alerting.ErrSendFailed):
-		c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "The text message could not be sent."})
-	case errors.Is(err, alerting.ErrCodeRejected):
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "The code is wrong or has expired."})
 	default:
 		writeInternalError(c, err)
 	}
@@ -74,9 +66,8 @@ func (h *channelHandlers) save(c *gin.Context) {
 	var request struct {
 		Email *bool `json:"emailEnabled"`
 		Slack *bool `json:"slackEnabled"`
-		SMS   *bool `json:"smsEnabled"`
 	}
-	if err := decodeStrictJSON(c, &request); err != nil || request.Email == nil || request.Slack == nil || request.SMS == nil {
+	if err := decodeStrictJSON(c, &request); err != nil || request.Email == nil || request.Slack == nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid alert channel settings."})
 		return
 	}
@@ -84,7 +75,7 @@ func (h *channelHandlers) save(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.contacts.SaveChannels(c.Request.Context(), id, *request.Email, *request.Slack, *request.SMS); err != nil {
+	if err := h.contacts.SaveChannels(c.Request.Context(), id, *request.Email, *request.Slack); err != nil {
 		writeChannelError(c, err)
 		return
 	}
@@ -113,46 +104,4 @@ func (h *channelHandlers) saveSlack(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
-}
-
-func (h *channelHandlers) startPhone(c *gin.Context) {
-	var request struct {
-		Phone *string `json:"phone"`
-	}
-	if err := decodeStrictJSON(c, &request); err != nil || request.Phone == nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid phone number."})
-		return
-	}
-	id, ok := h.account(c)
-	if !ok {
-		return
-	}
-	if err := h.contacts.StartPhoneVerification(c.Request.Context(), id, *request.Phone); err != nil {
-		if errors.Is(err, alerting.ErrInvalidInput) {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Enter the number with a plus sign, country code, and digits only, such as +15551234567."})
-			return
-		}
-		writeChannelError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
-}
-
-func (h *channelHandlers) verifyPhone(c *gin.Context) {
-	var request struct {
-		Code *string `json:"code"`
-	}
-	if err := decodeStrictJSON(c, &request); err != nil || request.Code == nil || len(*request.Code) > 6 {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "The code is wrong or has expired."})
-		return
-	}
-	id, ok := h.account(c)
-	if !ok {
-		return
-	}
-	if err := h.contacts.VerifyPhone(c.Request.Context(), id, *request.Code); err != nil {
-		writeChannelError(c, err)
-		return
-	}
-	c.Status(http.StatusNoContent)
 }

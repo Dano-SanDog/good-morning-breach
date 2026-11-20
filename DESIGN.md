@@ -276,14 +276,14 @@ All components are framework-neutral. Every interactive element has a 3 px ink f
 - **Risk count bar:** five segments sized by count, each labelled with its number and word.
 - **Admin warning:** a warning-container banner that names the failing source and how long it has been failing (FR-8.7).
 - **Empty state:** "No new stories at or above Medium since 07:00 yesterday. Change your minimum risk in Alert settings."
-- **Alert settings form:** time, time zone, days, channels, minimum risk, and an on/off switch shown as a labelled checkbox. Phone numbers show a "Verify number" step. A saved Slack webhook shows as "Slack webhook saved" with a "Replace" action.
+- **Alert settings form:** time, time zone, days, channels, minimum risk, and an on/off switch shown as a labelled checkbox. A saved Slack webhook shows as "Slack webhook saved" with a "Replace" action.
 
 - **Email alert:** a single column up to 600 px wide, using these colour tokens and risk chips with the risk word. It uses system fonts only, because email clients don't load self-hosted fonts reliably. It contains no images and no scripts, and it always includes a plain-text part. *(delegated decision)*
 
 ### Security-relevant interactions
 
 - **Signed-in state:** the ink account bar is always present after sign-in. It shows the account email, a role label ("Admin" or "User"), and a "Sign out" button. Admin-only navigation renders only for admins. ASSUMPTION: a dialog warns two minutes before the 30-minute idle sign-out (FR-6.10), with "Stay signed in".
-- **Destructive and privileged actions:** deleting an account, removing or enabling a source, changing a role, and disabling a category open a dialog. The dialog names the target and its consequence, for example "Delete jo@example.org? Their email, phone number, and Slack webhook are deleted. This can't be undone." Account deletion requires typing the account email. The destructive button never has default focus. "Cancel" does. Impossible actions are disabled with the reason shown, for example "This is the last active admin" (FR-9.3). Enabling a source without a licence record is disabled with "Add a licence record first" (FR-8.3).
+- **Destructive and privileged actions:** deleting an account, removing or enabling a source, changing a role, and disabling a category open a dialog. The dialog names the target and its consequence, for example "Delete jo@example.org? Their email and Slack webhook are deleted. This can't be undone." Account deletion requires typing the account email. The destructive button never has default focus. "Cancel" does. Impossible actions are disabled with the reason shown, for example "This is the last active admin" (FR-9.3). Enabling a source without a licence record is disabled with "Add a licence record first" (FR-8.3).
 - **What errors may reveal:**
   - *Sign-in:* every failure shows one message: "Email or password is incorrect." (FR-6.8). Password reset always says "If that address has an account, we sent a link."
   - *All errors:* never show stack traces, internal IDs, source credentials, saved webhook addresses (NFR-3.3), or whether another user exists.
