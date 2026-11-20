@@ -43,6 +43,9 @@ var perAccountTOTPRequirementMigration string
 //go:embed migrations/011_alert_settings.sql
 var alertSettingsMigration string
 
+//go:embed migrations/012_alert_delivery.sql
+var alertDeliveryMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -62,6 +65,7 @@ var migrations = []migration{
 	{version: 9, sql: adminManagementMigration},
 	{version: 10, sql: perAccountTOTPRequirementMigration},
 	{version: 11, sql: alertSettingsMigration},
+	{version: 12, sql: alertDeliveryMigration},
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
