@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, and saved email-alert preferences. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Alert delivery, password reset, admin-editable categories and sources, semantic analysis, email display, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password sign-in with per-account TOTP requirements, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, saved alert preferences, scheduled email alerts, password reset by email, and admin-editable categories and data sources. A partial analysis baseline assigns categories, risk, and sentiment, ranks stories by risk, and adds conservative title-phrase ATT&CK tags from the pinned Enterprise bundle. Text message and Slack delivery, semantic analysis, summaries, ATT&CK tags and fuller story detail in email alerts, and the remaining product workflows are still in progress. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -17,20 +17,22 @@ A private, non-commercial morning cybersecurity news feed. Good Morning Breach c
 
 Source licenses were researched for this use case. See [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
 
-The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Out of scope by owner decision: Australia ASD's ACSC (its site blocks the collector), Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar).
+The migrations seed 24 sources (migrations 001 to 016), all enabled by default: CERT-EU, SANS Internet Storm Center, five CERT-FR feeds, CISA cybersecurity advisories, EFF Deeplinks, UK NCSC, two Canadian Cyber Centre feeds, Kaspersky Securelist, CISA KEV, the GitHub Advisory Database, additional CISA feeds (ICS, ICS medical, news, blog), FBI IC3 (PSA and CSA), NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News (security-keyword titles and links only). Out of scope by owner decision: Australia ASD's ACSC (its site blocks the collector), Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, and abuse.ch (Feodo Tracker, SSL Blacklist, URLhaus, ThreatFox, MalwareBazaar).
 
-| Group | Sources at launch |
+| Group | Sources |
 | --- | --- |
-| Government and CERT | remaining CISA advisory feeds, NVD API, FBI IC3, CERT-EU, CERT-FR |
-| Vulnerability and threat data | Have I Been Pwned breach catalog |
-| News and research | SANS Internet Storm Center, EFF Deeplinks, Hacker News (titles and links only) |
+| Government and CERT | CISA advisories, ICS, ICS medical, news and blog feeds, CISA KEV, NVD critical CVEs, FBI IC3 (PSA and CSA), UK NCSC, CERT-EU, CERT-FR (five feeds), Canadian Cyber Centre (two feeds) |
+| Vulnerability and threat data | GitHub Advisory Database, Have I Been Pwned breach catalog |
+| News and research | SANS Internet Storm Center, EFF Deeplinks, Kaspersky Securelist, Hacker News (titles and links only) |
 | Frameworks | MITRE ATT&CK |
 
-**Not used:** LevelBlue/AlienVault OTX, GreyNoise free tier, OpenPhish free feed, Spamhaus DROP, Shadowserver. Their terms forbid display to other persons.
+**Out of scope by owner decision (not seeded, and rejected by the admin source API):** Reddit, Cloudflare Radar and Zero Wire, FIRST EPSS, CISA Vulnrichment, abuse.ch, and Australia ASD's ACSC.
+
+**Not used (terms forbid display to other persons):** LevelBlue/AlienVault OTX, GreyNoise free tier, OpenPhish free feed, Spamhaus DROP, Shadowserver.
 
 ### Ethical sourcing
 
-- An admin records each source's license, terms link, and permitted use before the source can be enabled.
+- An admin records each source's license, terms link, and permitted use before the source can be enabled. Admins can now do this from the dashboard (see Catalog administration).
 - Each source has a content rule: full text, verbatim excerpt, summary, or headline and link only. "All rights reserved" news sources get headline and link only.
 - Every story shows its source name, attribution, and a link to the original.
 - The per-story SANS ISC attribution includes its CC BY-NC-SA 4.0 notice; CERT-FR attributions identify Licence Ouverte 2.0 and disclaim ANSSI endorsement; EFF attributions identify CC BY 4.0; UK NCSC attributions carry the Open Government Licence v3.0 statement; Canadian Cyber Centre attributions state the copy notice; KEV attributions state CC0 1.0 and no CISA/DHS endorsement; GitHub Advisory Database attributions state CC BY 4.0 and that headlines are reformatted; Securelist attributions carry the "Securelist blog" credit. FBI IC3 has no published reuse terms, so it is headline and link only. NVD, HIBP, and Hacker News attributions are per story. The dashboard footer shows the NVD, MITRE ATT&CK, and Have I Been Pwned notices. No government logos or seals, and no claim of endorsement.
@@ -40,7 +42,7 @@ The collector currently enables CERT-EU, SANS Internet Storm Center, five CERT-F
 ## Features
 
 ### Morning Alert
-**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: set `GB_SMTP_HOST`, optionally `GB_SMTP_PORT` (default 587; 465 uses implicit TLS, other ports require STARTTLS), `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE` (a regular `0600` file containing the app password; never put the password in an environment variable). Without `GB_SMTP_HOST`, alerts are disabled. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried up to 3 times at 10-minute intervals. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. Text message and Slack channels are not implemented.
+**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: set `GB_SMTP_HOST`, optionally `GB_SMTP_PORT` (default 587; 465 uses implicit TLS, other ports require STARTTLS), `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE` (a regular `0600` file containing the app password; never put the password in an environment variable). Without `GB_SMTP_HOST`, alerts are disabled. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried up to 3 times at 10-minute intervals. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. Text message and Slack channels are not implemented. The email contains each story's title, link, risk, tone, source, publication time, and categories; it does not yet show ATT&CK tags or summaries.
 
 **Password reset.** With SMTP configured, the sign-in page offers "Forgot password?". The emailed link (`https://localhost:8443/#reset=…`, token in the fragment) is single use and expires in 30 minutes; the request always gets the same reply, and at most 3 emails per account per hour are sent. A successful reset ends all of the account's sessions; TOTP is still required at sign-in. Apply migration 013 after updating. Without SMTP, password reset is disabled: requests get the usual reply but no message is sent, and the server logs a warning at startup. **Local development only:** set `GB_DEV_MAIL_DIR` to an absolute path (created with mode `0700`) and leave `GB_SMTP_HOST` unset; each reset message is then written to a private `0600` file in that directory instead of being emailed (open the newest file to get the link). SMTP always takes precedence, and the message contents are never logged.
 
@@ -56,15 +58,18 @@ The planned alert behavior is:
 - Filters by exact category, risk, source, and ATT&CK tactic or technique name or ID, plus local date range and title keyword search. Results are paginated in groups of 100; summaries are not yet stored or searchable.
 - Admins see each source's last success, failure and cause, with a warning when an enabled source's first failure since its last success was at least 24 hours ago. An inactive collector alone does not count as a failure.
 
+### Catalog administration
+Admins see a "Categories and sources" panel on the dashboard. They can add, rename, enable or disable, and delete categories, and add, edit, enable or disable, and delete sources (name, HTTPS address, format, license name and link, permitted use, attribution, content rule, poll interval of 1 to 168 hours, and whether to skip truncated titles). Endpoints are admin-only: `/api/admin/categories`, `/api/admin/source-records`, and `/api/admin/sources`. Rules: HTTPS only (no credentials, odd ports, local hosts, or blocked IP addresses); out-of-scope and prohibited sources are rejected, including trailing-dot host variants; a source cannot be enabled without a license record; the `other` category cannot be disabled or deleted; a category or source that has stories cannot be deleted, so disable it instead. Collection still uses the guarded outbound client (no redirects, private addresses blocked). Every change writes an audit row, shown in the administrator action log. Sources have no category column. Migration 017 adds this and migration 016 is now registered in the migrator.
+
 ### Story Categorization
-One or more categories per story. Starting list: Vulnerability, Exploited Vulnerability, Ransomware, Malware, Data Breach, Phishing and Social Engineering, Nation-State Activity, Supply Chain, Cloud and Infrastructure, Internet Outage and DDoS, Policy and Regulation, Other. Admins can add, rename, and disable categories.
+One or more categories per story. Starting list: Vulnerability, Exploited Vulnerability, Ransomware, Malware, Data Breach, Phishing and Social Engineering, Nation-State Activity, Supply Chain, Cloud and Infrastructure, Internet Outage and DDoS, Policy and Regulation, Other. Admins manage categories as described above.
 
 ### Sentiment and Risk Analysis
 - Risk: Critical, High, Medium, Low, Informational.
 - Sentiment (tone of the story): Negative, Neutral, Positive.
 
 ### MITRE ATT&CK Analysis
-The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. This does not inspect article text or infer techniques semantically. Email alerts are not implemented yet.
+The pinned Enterprise STIX v20.1 bundle is embedded and hash-checked. The current baseline tags a story only when its headline contains a complete multiword technique name or alias; each tag includes its ID, name, tactic(s), and a server-generated link. This does not inspect article text or infer techniques semantically. ATT&CK tags are not yet included in email alerts.
 
 ### Data Retention
 Stories are kept for 365 days. Alert delivery records are kept for 90 days.
@@ -143,7 +148,7 @@ After migrations are applied and the client dependencies are installed:
 
 6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, CISA ICS/news/blog, FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks hourly, while respecting each feed's persisted poll interval.
 
-The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 017 adds admin editing of categories and sources. Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
+The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources (migrations 001 to 017 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
 
 ## Roadmap
 
@@ -155,9 +160,10 @@ The migration and bootstrap commands use the local database owner; the server an
 - [x] Implement the first licensed RSS ingestion slice (CERT-EU)
 - [x] Schedule enabled-source collection while the server is running
 - [x] Schedule collection while the server is stopped on macOS
-- [ ] Add the remaining approved sources (see skipped list above; CERT-EU, SANS ISC, CERT-FR, CISA advisories, EFF Deeplinks, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, and GitHub Advisory Database are implemented)
-- [ ] Add categorization and risk scoring
+- [x] Add the approved launch sources (24 seeded sources; see Data Sources)
+- [x] Admin-editable categories and sources
+- [ ] Add categorization and risk scoring (a keyword baseline is implemented; semantic analysis remains)
 - [ ] Complete MITRE ATT&CK mapping and alert presentation (headline phrase matching is implemented)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Alert email)
-- [ ] Complete the dashboard (filters and admin source status are implemented; fuller analysis, and summary search remain)
-- [ ] Add alert delivery (email preferences are saved; scheduling, email, SMS, and Slack delivery remain)
+- [ ] Complete the dashboard (filters, admin source status, footer notices, and catalog administration are implemented; semantic analysis, summaries, and summary search remain)
+- [ ] Add alert delivery (scheduled email delivery with retries is implemented; story summaries and ATT&CK tags in email, SMS, and Slack remain)
