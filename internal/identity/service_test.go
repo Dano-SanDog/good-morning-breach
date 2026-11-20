@@ -10,97 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pquerna/otp"
-	"github.com/pquerna/otp/totp"
 )
 
-func TestFirstLoginEnrollsTOTPAndRejectsCodeReplay(t *testing.T) {
-	now := time.Unix(1_800_000_000, 0)
-	passwordHash, err := HashPassword("a sufficiently long password")
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := &memoryIdentityStore{
-		account: Account{
-			ID:           1,
-			Email:        "admin@example.test",
-			Role:         "admin",
-			PasswordHash: passwordHash,
-			Enabled:      true,
-			TOTPRequired: true,
-			LastTOTPStep: -1,
-		},
-		sessions: make(map[string]Session),
-	}
-	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service.now = func() time.Time { return now }
-
-	firstLogin, err := service.PasswordLogin(context.Background(), "ADMIN@example.test", "a sufficiently long password", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstLogin.Next != SetupTOTP {
-		t.Fatalf("first login step = %q; want %q", firstLogin.Next, SetupTOTP)
-	}
-	secret, err := service.BeginTOTPSetup(context.Background(), firstLogin.Token)
-	if err != nil {
-		t.Fatal(err)
-	}
-	opts := totp.ValidateOpts{
-		Period:    30,
-		Skew:      1,
-		Digits:    otp.DigitsSix,
-		Algorithm: otp.AlgorithmSHA1,
-	}
-	code, err := totp.GenerateCodeCustom(secret, now, opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	user, authenticatedToken, err := service.CompleteTOTP(context.Background(), firstLogin.Token, code, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if user.Email != "admin@example.test" || user.Role != "admin" {
-		t.Fatalf("authenticated user = %#v", user)
-	}
-	if _, err := service.CurrentUser(context.Background(), authenticatedToken); err != nil {
-		t.Fatalf("completed setup did not create an authenticated session: %v", err)
-	}
-
-	secondLogin, err := service.PasswordLogin(
-		context.Background(),
-		"admin@example.test",
-		"a sufficiently long password",
-		authenticatedToken,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if secondLogin.Next != LoginTOTP {
-		t.Fatalf("subsequent login step = %q; want %q", secondLogin.Next, LoginTOTP)
-	}
-	if _, _, err := service.CompleteTOTP(context.Background(), secondLogin.Token, code, false); !errors.Is(err, ErrCredentials) {
-		t.Fatalf("replayed TOTP error = %v; want generic credentials error", err)
-	}
-
-	futureCode, err := totp.GenerateCodeCustom(secret, now.Add(30*time.Second), opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, finalToken, err := service.CompleteTOTP(context.Background(), secondLogin.Token, futureCode, false)
-	if err != nil {
-		t.Fatalf("next valid code was rejected: %v", err)
-	}
-	if _, err := service.CurrentUser(context.Background(), finalToken); err != nil {
-		t.Fatalf("new session after TOTP login is invalid: %v", err)
-	}
-}
-
-func TestPasswordLoginWithoutTOTPRequirementCreatesAuthenticatedSession(t *testing.T) {
+func TestPasswordLoginCreatesAuthenticatedSession(t *testing.T) {
 	passwordHash, err := HashPassword("a sufficiently long password")
 	if err != nil {
 		t.Fatal(err)
@@ -112,11 +24,10 @@ func TestPasswordLoginWithoutTOTPRequirementCreatesAuthenticatedSession(t *testi
 			Role:         "admin",
 			PasswordHash: passwordHash,
 			Enabled:      true,
-			TOTPRequired: false,
 		},
 		sessions: make(map[string]Session),
 	}
-	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
+	service, err := NewService(store, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,13 +36,8 @@ func TestPasswordLoginWithoutTOTPRequirementCreatesAuthenticatedSession(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.User == nil || result.User.Email != "admin@example.test" || result.Next != "" {
+	if result.User == nil || result.User.Email != "admin@example.test" {
 		t.Fatalf("password-only login result = %#v", result)
-	}
-	sessionHash := hashSessionToken(result.Token)
-	session := store.sessions[hex.EncodeToString(sessionHash[:])]
-	if session.PartialExpiresAt != nil {
-		t.Fatal("password-only login created a partial session")
 	}
 	if _, err := service.CurrentUser(context.Background(), result.Token); err != nil {
 		t.Fatalf("password-only session is not authenticated: %v", err)
@@ -152,7 +58,7 @@ func TestPasswordLoginFailureLogsOneRedactedSecurityEvent(t *testing.T) {
 		},
 		sessions: make(map[string]Session),
 	}
-	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
+	service, err := NewService(store, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,17 +105,8 @@ func TestAdminAccountManagementRequiresAdminAndProtectsCurrentAccount(t *testing
 	if err := adminService.DeleteAccount(context.Background(), adminToken, 1); !errors.Is(err, ErrSelfManagement) {
 		t.Fatalf("self-deletion error = %v; want ErrSelfManagement", err)
 	}
-	if err := adminService.ResetAccountTOTP(context.Background(), adminToken, 1); !errors.Is(err, ErrSelfManagement) {
-		t.Fatalf("self TOTP reset error = %v; want ErrSelfManagement", err)
-	}
-	if err := adminService.ResetAccountTOTP(context.Background(), adminToken, 2); err != nil {
-		t.Fatalf("TOTP reset error = %v", err)
-	}
 
 	userService, _, userToken := serviceWithAuthenticatedAccount(t, "user")
-	if err := userService.ResetAccountTOTP(context.Background(), userToken, 2); !errors.Is(err, ErrAdminRequired) {
-		t.Fatalf("non-admin TOTP reset error = %v; want ErrAdminRequired", err)
-	}
 	if _, err := userService.ListAccounts(context.Background(), userToken); !errors.Is(err, ErrAdminRequired) {
 		t.Fatalf("non-admin account listing error = %v; want ErrAdminRequired", err)
 	}
@@ -303,12 +200,10 @@ func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memo
 	t.Helper()
 	store := &memoryIdentityStore{
 		account: Account{
-			ID:           1,
-			Email:        "admin@example.test",
-			Role:         role,
-			Enabled:      true,
-			TOTPRequired: true,
-			TOTPEnrolled: true,
+			ID:      1,
+			Email:   "admin@example.test",
+			Role:    role,
+			Enabled: true,
 		},
 		sessions: make(map[string]Session),
 	}
@@ -321,7 +216,7 @@ func serviceWithAuthenticatedAccount(t *testing.T, role string) (*Service, *memo
 		LastSeenAt: now,
 		ExpiresAt:  now.Add(time.Hour),
 	}
-	service, err := NewService(store, make([]byte, 32), http.DefaultClient)
+	service, err := NewService(store, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,11 +276,6 @@ func (s *memoryIdentityStore) UpdateAccount(
 	return ErrNotFound
 }
 
-func (s *memoryIdentityStore) ResetAccountTOTP(_ context.Context, _, targetID int64) error {
-	s.resetTarget = targetID
-	return nil
-}
-
 func (s *memoryIdentityStore) DeleteAccount(_ context.Context, _, targetID int64) error {
 	for index := range s.managedAccounts {
 		if s.managedAccounts[index].ID == targetID {
@@ -426,25 +316,6 @@ func (s *memoryIdentityStore) RecordFailedLogin(_ context.Context, _ int64, _ ti
 	return false, nil
 }
 
-func (s *memoryIdentityStore) CreatePartialSession(
-	_ context.Context,
-	previousHash, tokenHash []byte,
-	accountID int64,
-	now, partialExpiresAt time.Time,
-) error {
-	if len(previousHash) > 0 {
-		delete(s.sessions, hex.EncodeToString(previousHash))
-	}
-	s.sessions[hex.EncodeToString(tokenHash)] = Session{
-		Account:          s.account,
-		CreatedAt:        now,
-		LastSeenAt:       now,
-		ExpiresAt:        now.Add(8 * time.Hour),
-		PartialExpiresAt: &partialExpiresAt,
-	}
-	return nil
-}
-
 func (s *memoryIdentityStore) CreateSession(
 	_ context.Context,
 	previousHash, tokenHash []byte,
@@ -466,8 +337,7 @@ func (s *memoryIdentityStore) CreateSession(
 func (s *memoryIdentityStore) LoadSession(_ context.Context, tokenHash []byte, now time.Time) (Session, error) {
 	session, ok := s.sessions[hex.EncodeToString(tokenHash)]
 	if !ok || !session.ExpiresAt.After(now) ||
-		now.Sub(session.LastSeenAt) > 30*time.Minute ||
-		(session.PartialExpiresAt != nil && !session.PartialExpiresAt.After(now)) {
+		now.Sub(session.LastSeenAt) > 30*time.Minute {
 		return Session{}, ErrSession
 	}
 	session.Account = s.account
@@ -477,56 +347,12 @@ func (s *memoryIdentityStore) LoadSession(_ context.Context, tokenHash []byte, n
 func (s *memoryIdentityStore) TouchSession(_ context.Context, tokenHash []byte, now time.Time) error {
 	key := hex.EncodeToString(tokenHash)
 	session, ok := s.sessions[key]
-	if !ok || session.PartialExpiresAt != nil {
+	if !ok {
 		return ErrSession
 	}
 	session.LastSeenAt = now
 	s.sessions[key] = session
 	return nil
-}
-
-func (s *memoryIdentityStore) BeginTOTPSetup(
-	_ context.Context,
-	sessionHash []byte,
-	accountID int64,
-	ciphertext, nonce []byte,
-	_ time.Time,
-) error {
-	if _, ok := s.sessions[hex.EncodeToString(sessionHash)]; !ok || accountID != s.account.ID {
-		return ErrSession
-	}
-	s.account.TOTPSecretCiphertext = ciphertext
-	s.account.TOTPNonce = nonce
-	return nil
-}
-
-func (s *memoryIdentityStore) CompleteTOTP(
-	_ context.Context,
-	oldHash, newHash []byte,
-	step int64,
-	now time.Time,
-	setup bool,
-) (Account, error) {
-	session, ok := s.sessions[hex.EncodeToString(oldHash)]
-	if !ok || session.PartialExpiresAt == nil || !session.PartialExpiresAt.After(now) {
-		return Account{}, ErrSession
-	}
-	if setup == s.account.TOTPEnrolled {
-		return Account{}, ErrTOTPSetup
-	}
-	if step <= s.account.LastTOTPStep {
-		return Account{}, ErrOTPReplay
-	}
-	delete(s.sessions, hex.EncodeToString(oldHash))
-	s.account.TOTPEnrolled = true
-	s.account.LastTOTPStep = step
-	s.sessions[hex.EncodeToString(newHash)] = Session{
-		Account:    s.account,
-		CreatedAt:  now,
-		LastSeenAt: now,
-		ExpiresAt:  now.Add(8 * time.Hour),
-	}
-	return s.account, nil
 }
 
 func (s *memoryIdentityStore) DeleteSession(_ context.Context, tokenHash []byte) error {

@@ -12,7 +12,6 @@ import (
 	"github.com/Dano-SanDog/good-morning-breach/internal/applog"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
-	"github.com/Dano-SanDog/good-morning-breach/internal/secrets"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
 	"golang.org/x/term"
 )
@@ -61,10 +60,6 @@ func run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	dataKey, err := secrets.CreateDataKeyIfMissing()
-	if err != nil {
-		return err
-	}
 	databaseURL := os.Getenv("GB_MIGRATION_DATABASE_URL")
 	if databaseURL == "" {
 		databaseURL = defaultDatabaseURL
@@ -76,7 +71,7 @@ func run() error {
 	defer pool.Close()
 
 	store := postgres.NewIdentityStore(pool)
-	service, err := identity.NewService(store, dataKey, egress.NewHTTPClient())
+	service, err := identity.NewService(store, egress.NewHTTPClient())
 	if err != nil {
 		return err
 	}

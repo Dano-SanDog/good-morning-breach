@@ -8,14 +8,12 @@ require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/jackc/pgx/v5 v5.13.0
 	github.com/mmcdole/gofeed v1.5.0
-	github.com/pquerna/otp v1.5.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.62.0
 	golang.org/x/term v0.48.0
 )
 
 require (
-	github.com/boombuler/barcode v1.1.0 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect

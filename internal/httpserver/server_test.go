@@ -187,7 +187,7 @@ func TestMutatingRequestRequiresCSRFHeaderAndJSON(t *testing.T) {
 }
 
 func TestStoriesRequireAnAuthenticatedSession(t *testing.T) {
-	service, err := identity.NewService(&unauthenticatedIdentityStore{}, make([]byte, 32), http.DefaultClient)
+	service, err := identity.NewService(&unauthenticatedIdentityStore{}, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestStoriesRequireAnAuthenticatedSession(t *testing.T) {
 }
 
 func TestAdminEndpointsRequireAnAuthenticatedSession(t *testing.T) {
-	service, err := identity.NewService(&unauthenticatedIdentityStore{}, make([]byte, 32), http.DefaultClient)
+	service, err := identity.NewService(&unauthenticatedIdentityStore{}, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,32 +222,6 @@ func TestAdminEndpointsRequireAnAuthenticatedSession(t *testing.T) {
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("%s status = %d; want %d", path, response.Code, http.StatusUnauthorized)
-		}
-	}
-}
-
-func TestResetTOTPRouteRequiresCSRFAndSession(t *testing.T) {
-	service, err := identity.NewService(&unauthenticatedIdentityStore{}, make([]byte, 32), http.DefaultClient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	router, err := newRouter(service, fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		csrf string
-		want int
-	}{{"", http.StatusForbidden}, {"1", http.StatusUnauthorized}} {
-		request := httptest.NewRequest(http.MethodPost, "/api/admin/accounts/2/reset-totp", strings.NewReader("{}"))
-		request.Header.Set("Content-Type", "application/json")
-		if tc.csrf != "" {
-			request.Header.Set("X-GMB-CSRF", tc.csrf)
-		}
-		response := httptest.NewRecorder()
-		router.ServeHTTP(response, request)
-		if response.Code != tc.want {
-			t.Fatalf("csrf=%q status = %d; want %d", tc.csrf, response.Code, tc.want)
 		}
 	}
 }
@@ -288,7 +262,7 @@ func TestSourceHealthEndpointEnforcesRole(t *testing.T) {
 		want int
 	}{{"user", http.StatusForbidden}, {"admin", http.StatusOK}} {
 		store := &sourceHealthIdentityStore{role: tc.role}
-		service, err := identity.NewService(store, make([]byte, 32), http.DefaultClient)
+		service, err := identity.NewService(store, http.DefaultClient)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -311,7 +285,7 @@ func TestSourceHealthEndpointEnforcesRole(t *testing.T) {
 
 func TestAlertSettingsEndpoint(t *testing.T) {
 	store := &sourceHealthIdentityStore{role: "user"}
-	service, err := identity.NewService(store, make([]byte, 32), http.DefaultClient)
+	service, err := identity.NewService(store, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,9 +338,8 @@ func TestPasswordOnlyAdminLoginReturnsAuthenticatedSession(t *testing.T) {
 		Role:         "admin",
 		PasswordHash: passwordHash,
 		Enabled:      true,
-		TOTPRequired: false,
 	}}
-	service, err := identity.NewService(store, make([]byte, 32), http.DefaultClient)
+	service, err := identity.NewService(store, http.DefaultClient)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,10 +442,6 @@ func (*unauthenticatedIdentityStore) CreateAccount(context.Context, int64, strin
 func (*unauthenticatedIdentityStore) UpdateAccount(context.Context, int64, int64, *string, *bool) error {
 	return errors.New("unexpected call")
 }
-func (*unauthenticatedIdentityStore) ResetAccountTOTP(context.Context, int64, int64) error {
-	return nil
-}
-
 func (*unauthenticatedIdentityStore) DeleteAccount(context.Context, int64, int64) error {
 	return errors.New("unexpected call")
 }
@@ -494,9 +463,6 @@ func (*unauthenticatedIdentityStore) AccountByEmail(context.Context, string) (id
 func (*unauthenticatedIdentityStore) RecordFailedLogin(context.Context, int64, time.Time) (bool, error) {
 	return false, errors.New("unexpected call")
 }
-func (*unauthenticatedIdentityStore) CreatePartialSession(context.Context, []byte, []byte, int64, time.Time, time.Time) error {
-	return errors.New("unexpected call")
-}
 func (*unauthenticatedIdentityStore) CreateSession(context.Context, []byte, []byte, int64, time.Time) error {
 	return errors.New("unexpected call")
 }
@@ -505,12 +471,6 @@ func (*unauthenticatedIdentityStore) LoadSession(context.Context, []byte, time.T
 }
 func (*unauthenticatedIdentityStore) TouchSession(context.Context, []byte, time.Time) error {
 	return errors.New("unexpected call")
-}
-func (*unauthenticatedIdentityStore) BeginTOTPSetup(context.Context, []byte, int64, []byte, []byte, time.Time) error {
-	return errors.New("unexpected call")
-}
-func (*unauthenticatedIdentityStore) CompleteTOTP(context.Context, []byte, []byte, int64, time.Time, bool) (identity.Account, error) {
-	return identity.Account{}, errors.New("unexpected call")
 }
 func (*unauthenticatedIdentityStore) DeleteSession(context.Context, []byte) error {
 	return errors.New("unexpected call")

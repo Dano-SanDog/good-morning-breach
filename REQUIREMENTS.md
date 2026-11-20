@@ -11,7 +11,7 @@ Sources: the project notes and the requirements interview. In the interview, the
 - **Core workflows:** Collect news from data sources; categorize stories; analyze sentiment and risk; tag stories with MITRE ATT&CK techniques; send the morning alert; show stories on a dashboard; log in; manage users; manage data sources; manage alert settings.
 - **Data entities:** Story; data source (with license record); category; risk level; sentiment value; ATT&CK technique tag; morning alert; alert delivery record; user account; role; alert settings.
 - **External integrations:** other open-source cyber news sources; MITRE ATT&CK; email; text message (SMS); Slack.
-- **Authentication and roles:** Closed service. Every function needs login. Email address and password; TOTP is required by default and configurable per account. Roles: admin, user. No self sign-up.
+- **Authentication and roles:** Closed service. Every function needs login. Email address and password only (the TOTP second factor was withdrawn by owner decision). Roles: admin, user. No self sign-up.
 - **Regulatory or privacy constraints:** Use only ethical data sources and honor their licensing. The service is private and non-commercial, for personal use only. Contact data (email, phone number, Slack webhook) is used only to send alerts.
 - **Target surfaces (web UI, APIs, background jobs):** Web dashboard; background jobs for collection, analysis, and the morning alert. Public APIs: none.
 
@@ -95,17 +95,17 @@ Sources: the project notes and the requirements interview. In the interview, the
 - **FR-6.2** The system MUST refuse access to a person who is not logged in.
 - **FR-6.3** The system MUST refuse login when the credentials are not valid.
 - **FR-6.4** The system MUST support two roles: admin and user.
-- **FR-6.5** A person MUST log in with an email address and a password. Accounts with TOTP required MUST also verify a time-based one-time code. TOTP MUST be required by default and configurable per account.
+- **FR-6.5** A person MUST log in with an email address and a password. *(Revised by owner decision: the TOTP requirement was removed; sign-in is password-only.)*
 - **FR-6.6** The system MUST refuse a password that has fewer than 12 characters or that is on a list of known breached passwords. *(delegated decision)*
 - **FR-6.7** After 5 failed login attempts for one account in 15 minutes, the system MUST block login for that account for 15 minutes. *(delegated decision)*
-- **FR-6.8** The system MUST give the same error message for a wrong email address, a wrong password, and a wrong one-time code. *(delegated decision)*
+- **FR-6.8** The system MUST give the same error message for a wrong email address and a wrong password. *(delegated decision)*
 - **FR-6.9** A user MUST be able to reset their password through a single-use link that the system sends to their email address. The link MUST expire after 30 minutes. *(delegated decision)*
 - **FR-6.10** The system MUST end a session after 30 minutes without activity and when the user logs out. *(delegated decision)*
 - **FR-6.11** Each account MUST have exactly one role. *(delegated decision)*
 - **FR-6.12** A user MUST be able to view and change only their own alert settings and profile. The system MUST refuse access to the settings of other users. *(delegated decision)*
 - **FR-6.13** The system MUST refuse access to admin functions for an account with the user role. *(delegated decision)*
 - **FR-6.14** An admin MUST be able to do all that a user can do. *(delegated decision)*
-- **FR-6.15** At first login, the system MUST make the person set up a time-based one-time code before granting access if TOTP is required for that account. *(delegated decision)*
+- **FR-6.15** WITHDRAWN: TOTP setup is out of scope. *(Withdrawn by owner decision; the number is kept for traceability.)*
 
 ### 7. MITRE ATT&CK Analysis
 
@@ -162,7 +162,7 @@ Sources: the project notes and the requirements interview. In the interview, the
 
 - **NFR-3.1** The system MUST use only HTTPS for all user access. *(delegated decision)*
 - **NFR-3.2** The system MUST use contact data (email address, phone number, Slack webhook) only to send alerts and password reset messages. *(delegated decision)*
-- **NFR-3.3** The system MUST NOT show passwords, one-time code secrets, or Slack webhook addresses after they are saved. *(delegated decision)*
+- **NFR-3.3** The system MUST NOT show passwords or Slack webhook addresses after they are saved. *(delegated decision)*
 - **NFR-3.4** The system MUST treat all collected content as not trusted. Collected content MUST NOT run as code in the dashboard, email, or Slack message. *(delegated decision)*
 
 ### 4. Availability

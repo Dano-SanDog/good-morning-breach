@@ -178,7 +178,7 @@ components:
 - **Audience:** the owner and up to about ten invited security readers. They are the people who check their phones before coffee. Admins also manage sources, licenses, and accounts.
 - **Primary job of the main screens:**
   - *Dashboard:* answer "what needs me this morning?" in under a minute. Show the riskiest stories first and give a link to each original source.
-  - *Sign-in:* a closed door with email, password, and TOTP.
+  - *Sign-in:* a closed door with email and password.
   - *Alert settings:* "when and where do I hear about it?"
   - *Admin:* source licenses and health, users, and the audit log.
 
@@ -282,10 +282,10 @@ All components are framework-neutral. Every interactive element has a 3 px ink f
 
 ### Security-relevant interactions
 
-- **Signed-in state:** the ink account bar is always present after sign-in. It shows the account email, a role label ("Admin" or "User"), and a "Sign out" button. Admin-only navigation renders only for admins. Pages that need setup (first-login TOTP, FR-6.15) hide all other navigation until setup is done. ASSUMPTION: a dialog warns two minutes before the 30-minute idle sign-out (FR-6.10), with "Stay signed in".
+- **Signed-in state:** the ink account bar is always present after sign-in. It shows the account email, a role label ("Admin" or "User"), and a "Sign out" button. Admin-only navigation renders only for admins. ASSUMPTION: a dialog warns two minutes before the 30-minute idle sign-out (FR-6.10), with "Stay signed in".
 - **Destructive and privileged actions:** deleting an account, removing or enabling a source, changing a role, and disabling a category open a dialog. The dialog names the target and its consequence, for example "Delete jo@example.org? Their email, phone number, and Slack webhook are deleted. This can't be undone." Account deletion requires typing the account email. The destructive button never has default focus. "Cancel" does. Impossible actions are disabled with the reason shown, for example "This is the last active admin" (FR-9.3). Enabling a source without a licence record is disabled with "Add a licence record first" (FR-8.3).
 - **What errors may reveal:**
-  - *Sign-in:* every failure shows one message: "Email, password, or code is incorrect." (FR-6.8). Password reset always says "If that address has an account, we sent a link."
+  - *Sign-in:* every failure shows one message: "Email or password is incorrect." (FR-6.8). Password reset always says "If that address has an account, we sent a link."
   - *All errors:* never show stack traces, internal IDs, source credentials, saved webhook addresses (NFR-3.3), or whether another user exists.
   - *Lockout:* a locked account shows the same single sign-in error, so lockout never confirms that an account exists. *(delegated decision)*
 - **User-supplied and collected content:** all story text, source names, and category names render as plain text, never as markup (NFR-3.4). Links to original items show their destination domain in visible text beside the title. Long unbroken strings wrap so they cannot push the layout off screen.

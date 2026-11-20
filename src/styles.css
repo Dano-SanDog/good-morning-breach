@@ -70,8 +70,7 @@ p {
   line-height: 1.2;
 }
 
-.auth-panel > .muted,
-.setup-instructions {
+.auth-panel > .muted {
   margin-bottom: 24px;
   text-align: center;
 }
@@ -98,12 +97,6 @@ p {
 
 .auth-panel input:focus-visible {
   border-color: #1d1a3b;
-}
-
-.auth-panel input#totp-code {
-  font-size: 24px;
-  letter-spacing: 0.18em;
-  text-align: center;
 }
 
 .primary-button,
@@ -143,21 +136,6 @@ button:disabled {
   border-radius: 3px;
   background: #fbe9ec;
   color: #1d1a3b;
-}
-
-.secret-value {
-  display: block;
-  overflow-wrap: anywhere;
-  margin: 12px 0;
-  padding: 12px;
-  border: 1px solid #d9d7e5;
-  border-radius: 3px;
-  background: #efeef5;
-  color: #1d1a3b;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  user-select: all;
 }
 
 .dashboard-shell {

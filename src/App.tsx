@@ -9,8 +9,6 @@ type ManagedAccount = {
   email: string;
   role: "admin" | "user";
   enabled: boolean;
-  totpRequired: boolean;
-  totpEnrolled: boolean;
   createdAt: string;
 };
 type AdminAuditRecord = {
@@ -75,10 +73,9 @@ type RelatedStory = { id: number; title: string; url: string; cve: string };
 const cvePattern = /^CVE-[0-9]{4}-[0-9]{4,19}$/;
 const riskValues: ReadonlySet<string> = new Set(["Critical", "High", "Medium", "Low", "Informational"]);
 const sentimentValues: ReadonlySet<string> = new Set(["Negative", "Neutral", "Positive"]);
-type LoginStep = "totp" | "setup";
-type View = "loading" | "signin" | "forgot" | LoginStep | "dashboard";
+type View = "loading" | "signin" | "forgot" | "dashboard";
 
-const credentialError = "Email, password, or code is incorrect.";
+const credentialError = "Email or password is incorrect.";
 
 export function getSafeExternalURL(value: string): URL | null {
   try {
@@ -111,13 +108,6 @@ function parseUser(value: unknown): User | null {
     (value.role === "admin" || value.role === "user")
   ) {
     return { email: value.email, role: value.role };
-  }
-  return null;
-}
-
-function parseLoginStep(value: unknown): LoginStep | null {
-  if (isRecord(value) && (value.next === "setup" || value.next === "totp")) {
-    return value.next;
   }
   return null;
 }
@@ -251,8 +241,6 @@ function parseManagedAccounts(value: unknown): ManagedAccount[] | null {
       typeof item.email !== "string" ||
       (item.role !== "admin" && item.role !== "user") ||
       typeof item.enabled !== "boolean" ||
-      typeof item.totpRequired !== "boolean" ||
-      typeof item.totpEnrolled !== "boolean" ||
       typeof item.createdAt !== "string"
     ) {
       return null;
@@ -262,8 +250,6 @@ function parseManagedAccounts(value: unknown): ManagedAccount[] | null {
       email: item.email,
       role: item.role,
       enabled: item.enabled,
-      totpRequired: item.totpRequired,
-      totpEnrolled: item.totpEnrolled,
       createdAt: item.createdAt,
     });
   }
@@ -392,13 +378,11 @@ export function App() {
   const [appliedFilters, setAppliedFilters] = useState<StoryFilters>(emptyFilters);
   const [storyOffset, setStoryOffset] = useState(0);
   const [hasMoreStories, setHasMoreStories] = useState(false);
-  const [totpSecret, setTotpSecret] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newAccountEmail, setNewAccountEmail] = useState("");
   const [newAccountPassword, setNewAccountPassword] = useState("");
   const [newAccountRole, setNewAccountRole] = useState<"admin" | "user">("user");
-  const [code, setCode] = useState("");
   const [message, setMessage] = useState("");
   const [resetToken, setResetToken] = useState(() =>
     typeof window === "undefined" ? "" : parseResetToken(window.location.hash),
@@ -458,28 +442,6 @@ export function App() {
     setAdminAudit(audit);
   }, []);
 
-  const startSetup = useCallback(async () => {
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await mutateJSON("/api/auth/totp/setup/start", "POST");
-      if (!response.ok) {
-        throw new Error(await responseError(response));
-      }
-      const payload: unknown = await response.json();
-      if (!isRecord(payload) || typeof payload.secret !== "string") {
-        throw new Error("The server returned an invalid authenticator setup.");
-      }
-      setTotpSecret(payload.secret);
-      setCode("");
-      setView("setup");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not start authenticator setup.");
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
   const enterDashboard = useCallback(
     async (signedInUser: User) => {
       setUser(signedInUser);
@@ -520,24 +482,6 @@ export function App() {
           throw new Error(await responseError(sessionResponse));
         }
 
-        const challengeResponse = await fetch("/api/auth/challenge", {
-          credentials: "same-origin",
-        });
-        if (challengeResponse.ok) {
-          const step = parseLoginStep(await challengeResponse.json());
-          if (!step) {
-            throw new Error("The server returned an invalid sign-in challenge.");
-          }
-          if (active && step === "setup") {
-            await startSetup();
-          } else if (active) {
-            setView("totp");
-          }
-          return;
-        }
-        if (challengeResponse.status !== 401) {
-          throw new Error(await responseError(challengeResponse));
-        }
         if (active) {
           setView("signin");
         }
@@ -552,7 +496,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [enterDashboard, startSetup]);
+  }, [enterDashboard]);
 
   useEffect(() => {
     if (view !== "dashboard") {
@@ -602,22 +546,10 @@ export function App() {
       }
       const payload: unknown = await response.json();
       const signedInUser = parseUser(payload);
-      if (signedInUser) {
-        setCode("");
-        setTotpSecret("");
-        await enterDashboard(signedInUser);
-        return;
+      if (!signedInUser) {
+        throw new Error("The server returned an invalid session.");
       }
-      const step = parseLoginStep(payload);
-      if (!step) {
-        throw new Error("The server returned an invalid sign-in challenge.");
-      }
-      if (step === "setup") {
-        await startSetup();
-      } else {
-        setCode("");
-        setView("totp");
-      }
+      await enterDashboard(signedInUser);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : credentialError);
     } finally {
@@ -669,30 +601,6 @@ export function App() {
     }
   }
 
-  async function handleTOTP(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setBusy(true);
-    setMessage("");
-    const endpoint = view === "setup" ? "/api/auth/totp/setup/confirm" : "/api/auth/totp/login";
-    try {
-      const response = await mutateJSON(endpoint, "POST", { code });
-      if (!response.ok) {
-        throw new Error(await responseError(response));
-      }
-      const signedInUser = parseUser(await response.json());
-      if (!signedInUser) {
-        throw new Error("The server returned an invalid session.");
-      }
-      setCode("");
-      setTotpSecret("");
-      await enterDashboard(signedInUser);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : credentialError);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleLogout() {
     setBusy(true);
     setMessage("");
@@ -708,7 +616,6 @@ export function App() {
       setSourceStatuses(null);
       setAlertSettings(null);
       setAlertSaved(false);
-      setCode("");
       setView("signin");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not sign out.");
@@ -803,25 +710,6 @@ export function App() {
       await loadAdminData();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not delete the account.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleResetTOTP(account: ManagedAccount) {
-    if (!window.confirm(`Reset the authenticator for ${account.email}? Their sessions end and they must enrol a new authenticator at next sign-in.`)) {
-      return;
-    }
-    setBusy(true);
-    setMessage("");
-    try {
-      const response = await mutateJSON(`/api/admin/accounts/${account.id}/reset-totp`, "POST");
-      if (!response.ok) {
-        throw new Error(await responseError(response));
-      }
-      await loadAdminData();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not reset the authenticator.");
     } finally {
       setBusy(false);
     }
@@ -926,43 +814,6 @@ export function App() {
             </button>
             <button type="button" className="secondary-button" onClick={() => { setMessage(""); setNotice(""); setView("forgot"); }}>
               Forgot password?
-            </button>
-          </form>
-        </section>
-      </main>
-    );
-  }
-
-  if (view === "totp" || view === "setup") {
-    return (
-      <main className="auth-shell">
-        <section className="auth-panel" aria-labelledby="totp-heading">
-          <img className="brand-mark" src={logo} alt="" />
-          <h1 id="totp-heading">{view === "setup" ? "Set up your authenticator" : "Enter your code"}</h1>
-          {view === "setup" ? (
-            <div className="setup-instructions">
-              <p>In your authenticator app, add an account using this key:</p>
-              <code className="secret-value">{totpSecret || "Preparing your setup key…"}</code>
-              <p className="muted">Enter the six-digit code from the app to finish setup.</p>
-            </div>
-          ) : (
-            <p className="muted">Enter the current six-digit code from your authenticator app.</p>
-          )}
-          <form onSubmit={handleTOTP}>
-            <label htmlFor="totp-code">Authenticator code</label>
-            <input
-              id="totp-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]{6}"
-              maxLength={6}
-              required
-              value={code}
-              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-            />
-            {message && <p className="message" role="alert">{message}</p>}
-            <button type="submit" className="primary-button" disabled={busy || (view === "setup" && !totpSecret)}>
-              {busy ? "Checking…" : view === "setup" ? "Finish setup" : "Sign in"}
             </button>
           </form>
         </section>
@@ -1121,7 +972,6 @@ export function App() {
                     <th scope="col">Account</th>
                     <th scope="col">Role</th>
                     <th scope="col">Status</th>
-                    <th scope="col">Authenticator</th>
                     <th scope="col">Actions</th>
                   </tr>
                 </thead>
@@ -1147,13 +997,6 @@ export function App() {
                           </select>
                         </td>
                         <td>{account.enabled ? "Enabled" : "Disabled"}</td>
-                        <td>
-                          {!account.totpRequired
-                            ? "Not required"
-                            : account.totpEnrolled
-                              ? "Enrolled"
-                              : "Required"}
-                        </td>
                         <td className="admin-actions">
                           <button
                             type="button"
@@ -1162,15 +1005,6 @@ export function App() {
                             onClick={() => void handleUpdateAccount(account, { enabled: !account.enabled })}
                           >
                             {account.enabled ? "Disable" : "Enable"}
-                          </button>
-                          <button
-                            type="button"
-                            className="table-button"
-                            disabled={busy || isCurrentAccount || !account.totpEnrolled}
-                            title={isCurrentAccount ? "You cannot reset your own authenticator" : undefined}
-                            onClick={() => void handleResetTOTP(account)}
-                          >
-                            Reset authenticator
                           </button>
                           <button
                             type="button"
