@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
-import { App, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
+import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
   const markup = renderToStaticMarkup(createElement(App));
@@ -133,4 +133,13 @@ test("accepts only well-formed reset tokens from the URL fragment", () => {
   expect(parseResetToken("#reset=abcDEF123")).toBe("abcDEF123");
   expect(parseResetToken("#reset=<script>")).toBe("");
   expect(parseResetToken("")).toBe("");
+});
+
+test("shows the required NVD, MITRE, and Have I Been Pwned notices", () => {
+  const markup = renderToStaticMarkup(createElement(DashboardNotices));
+  expect(markup).toContain("This product uses the NVD API but is not endorsed or certified by the NVD.");
+  expect(markup).toContain("© 2026 The MITRE Corporation.");
+  expect(markup).toContain("https://attack.mitre.org/resources/legal-and-branding/terms-of-use/");
+  expect(markup).toContain("MITRE ATT&amp;CK® and ATT&amp;CK® are registered trademarks of The MITRE Corporation.");
+  expect(markup).toContain("https://haveibeenpwned.com");
 });

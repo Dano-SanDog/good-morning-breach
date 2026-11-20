@@ -1236,6 +1236,25 @@ export function App() {
           <button type="button" className="table-button" disabled={busy || !hasMoreStories} onClick={() => void applyStoryFilters(appliedFilters, storyOffset + 100)}>Next</button>
         </nav>}
       </main>
+      <DashboardNotices />
     </div>
+  );
+}
+
+export function DashboardNotices() {
+  return (
+    <footer className="dashboard-notices" aria-label="Required notices">
+      <p>This product uses the NVD API but is not endorsed or certified by the NVD.</p>
+      <p>
+        © 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.{" "}
+        <a href="https://attack.mitre.org/resources/legal-and-branding/terms-of-use/" rel="noopener noreferrer">ATT&amp;CK terms of use</a>
+      </p>
+      <p>
+        MITRE ATT&amp;CK® and ATT&amp;CK® are registered trademarks of The MITRE Corporation.
+      </p>
+      <p>
+        Breach data from <a href="https://haveibeenpwned.com" rel="noopener noreferrer">Have I Been Pwned</a> (CC BY 4.0).
+      </p>
+    </footer>
   );
 }
