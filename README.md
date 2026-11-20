@@ -42,7 +42,7 @@ The migrations seed 24 sources (migrations 001 to 016), all enabled by default: 
 ## Features
 
 ### Morning Alert
-**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: set `GB_SMTP_HOST`, optionally `GB_SMTP_PORT` (default 587; 465 uses implicit TLS, other ports require STARTTLS), `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE` (a regular `0600` file containing the app password; never put the password in an environment variable). Without `GB_SMTP_HOST`, alerts are disabled. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried up to 3 times at 10-minute intervals. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. Text message and Slack channels are not implemented. The email contains each story's title, link, risk, tone, source, publication time, categories, CVE IDs, ATT&CK tags (linked to attack.mitre.org), up to 3 related stories that share a CVE (headline and link only), and each source's required attribution; the MITRE notice appears when tags are shown. Only https links are rendered as links, and all text is escaped. Stories have no summary because only headlines are stored. With `GB_DEV_MAIL_DIR` set and no SMTP, alerts are also written there as `.eml` files for inspection.
+**Email alerts.** Signed-in users can save their future email-alert preferences (time, IANA time zone, days, minimum risk, and enabled status). The default form is 07:00 daily at Medium risk and suggests the browser's time zone until saved. Email delivery is sent only when the server has SMTP configured: configure SMTP as described under "Email setup (SMTP)" (`GB_SMTP_HOST`, `GB_SMTP_PORT`, `GB_SMTP_TLS`, `GB_SMTP_USERNAME`, `GB_SMTP_FROM`, and `GB_SMTP_PASSWORD_FILE`; the password is never read from an environment variable). Without `GB_SMTP_HOST`, alerts are disabled. The server checks every minute and sends each enabled account its alert at its saved time, time zone, and days (up to 2 hours late if the server was asleep), with stories collected since its previous alert at or above its minimum risk (at most 10, highest risk first). Failed sends are retried up to 3 times at 10-minute intervals. Last-sent state and delivery records (kept 90 days) are stored by migration 012; apply it after updating. Accounts that have never saved alert preferences receive no alert. Text message and Slack channels are not implemented. The email contains each story's title, link, risk, tone, source, publication time, categories, CVE IDs, ATT&CK tags (linked to attack.mitre.org), up to 3 related stories that share a CVE (headline and link only), and each source's required attribution; the MITRE notice appears when tags are shown. Only https links are rendered as links, and all text is escaped. Stories have no summary because only headlines are stored. With `GB_DEV_MAIL_DIR` set and no SMTP, alerts are also written there as `.eml` files for inspection.
 
 **Password reset.** With SMTP configured, the sign-in page offers "Forgot password?". The emailed link (`https://localhost:8443/#reset=…`, token in the fragment) is single use and expires in 30 minutes; the request always gets the same reply, and at most 3 emails per account per hour are sent. A successful reset ends all of the account's sessions. Apply migration 013 after updating. Without SMTP, password reset is disabled: requests get the usual reply but no message is sent, and the server logs a warning at startup. **Local development only:** set `GB_DEV_MAIL_DIR` to an absolute path (created with mode `0700`) and leave `GB_SMTP_HOST` unset; each reset message is then written to a private `0600` file in that directory instead of being emailed (open the newest file to get the link). SMTP always takes precedence, and the message contents are never logged.
 
@@ -152,6 +152,47 @@ After migrations are applied and the client dependencies are installed:
 6. Open [https://localhost:8443](https://localhost:8443). The dashboard shows stories from CERT-EU, SANS ISC, CERT-FR, CISA, EFF, UK NCSC, Canadian Cyber Centre, Securelist, CISA KEV, GitHub Advisory Database, CISA ICS/news/blog, FBI IC3, NVD critical CVEs, the Have I Been Pwned breach catalog, and Hacker News from the last 24 hours, with 100 results per page. Use "Filter stories" to search and select a date range; dates use the browser's local time zone. Admins can expand "View source collection status" to inspect the feeds. Sign-in sessions use a 30-minute idle timeout and an 8-hour maximum lifetime. The server starts a collection check immediately and checks every 10 minutes, while respecting each feed's persisted poll interval.
 
 The migration and bootstrap commands use the local database owner; the server and collector use the restricted `gb_app` role. Migration 009 grants the server the account-management and append-only audit-log permissions it needs; migration 011 adds per-account alert preferences; migration 012 adds alert delivery records; migration 013 adds password reset tokens; migration 017 adds admin editing of categories and sources migration 019 adds story retention deletes, admin authenticator reset auditing, and caps poll intervals at 24 hours; migration 020 permanently drops the TOTP columns and deletes partial sessions (irreversible; run `go run ./cmd/migrate` before starting the updated server, since the old columns are gone) (migrations 001 to 020 are all applied by `cmd/migrate`). Apply migrations after updating the application. Set `GB_MIGRATION_DATABASE_URL` or `GB_DATABASE_URL` when your local PostgreSQL role/database names differ. Application logs are JSON files under the OS user configuration directory at `good-morning-breach/logs`; they are private, rotate daily, and are pruned after 30 days.
+
+### Email setup (SMTP)
+
+Morning alerts and password reset (the only recovery path, since there is no second factor) need an SMTP account. Messages are sent only over TLS: implicit TLS or mandatory STARTTLS with certificate verification (TLS 1.2 or later). Plaintext SMTP is not supported.
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `GB_SMTP_HOST` | yes, to enable email | Bare host name, for example `smtp.example.org` (no `https://`, port, or path). Unset disables email. |
+| `GB_SMTP_PORT` | no | Default `587`. |
+| `GB_SMTP_TLS` | no | `starttls` or `implicit`. Default: `implicit` on port 465, otherwise `starttls`. |
+| `GB_SMTP_USERNAME` | usually | Sign-in name; omit only for a relay that needs no sign-in. |
+| `GB_SMTP_PASSWORD_FILE` | with a username | Path to a regular, non-empty file with mode `0600` containing only the password or app password. There is no password environment variable. |
+| `GB_SMTP_FROM` | if the username is not an email address | Sender address; defaults to the username. |
+| `GB_DEV_MAIL_DIR` | no | Development only: write messages to files when `GB_SMTP_HOST` is unset. |
+
+Store the password outside the repository (and never in shell history or an environment variable):
+
+```sh
+mkdir -p "$HOME/.config/gmb-smtp"
+( umask 077; read -rs -p "SMTP password: " p; printf '%s' "$p" > "$HOME/.config/gmb-smtp/password"; unset p )
+chmod 600 "$HOME/.config/gmb-smtp/password"
+```
+
+Check the settings before relying on them. `smtptest` reads the same variables, never touches the database, and sends one fixed message to the address you give it:
+
+```sh
+export GB_SMTP_HOST=smtp.example.org GB_SMTP_USERNAME=me@example.org \
+  GB_SMTP_PASSWORD_FILE="$HOME/.config/gmb-smtp/password"
+go run ./cmd/smtptest -verify-only            # connect, TLS, sign-in; sends nothing
+go run ./cmd/smtptest -to me@example.org      # also sends a test message
+```
+
+The server runs the same connect-and-sign-in check in the background at startup (it never delays startup). An invalid configuration stops startup with a clear error, but if the SMTP server is unreachable or rejects the sign-in, the server logs a warning and keeps running (deliveries are retried later). Passwords, usernames, and message contents are never logged. Messages also depend on your provider accepting the sender address; mail from a domain without matching SPF/DKIM may land in spam.
+
+Typical settings (confirm each against the provider's current documentation; these were not tested against live accounts):
+
+- **Generic SMTP relay:** use the host, port, and credentials the relay gives you. Port 587 with `starttls`, or 465 with `implicit`.
+- **Gmail:** host `smtp.gmail.com`, port 587 (or 465 implicit). Turn on 2-Step Verification, create an app password, and put it in the password file. The username and sender are the full Gmail address.
+- **iCloud Mail:** host `smtp.mail.me.com`, port 587 `starttls`. Create an app-specific password at account.apple.com; the username is your iCloud address, and the sender must be that address or one of its aliases.
+
+If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMTP_TLS` usually disagree; a sign-in error means a wrong username or password (use an app password where the provider requires one).
 
 ## Roadmap
 
