@@ -759,13 +759,22 @@ func (s *IdentityStore) attachRelatedStories(ctx context.Context, stories []iden
 	if len(ids) == 0 {
 		return nil
 	}
-	rows, err := s.pool.Query(ctx, `SELECT mine.story_id, other.id, other.title, other.canonical_url, mine.cve_id
-		FROM story_cves AS mine
-		JOIN story_cves AS theirs ON theirs.cve_id = mine.cve_id AND theirs.story_id <> mine.story_id
-		JOIN stories AS other ON other.id = theirs.story_id
-		WHERE mine.story_id = ANY($1)
-		ORDER BY mine.story_id, COALESCE(other.published_at, other.created_at) DESC, other.id DESC
-		LIMIT 2000`, ids)
+	rows, err := s.pool.Query(ctx, `SELECT story_id, id, title, canonical_url, cve_id FROM (
+			SELECT pairs.story_id, other.id, other.title, other.canonical_url, pairs.cve_id,
+				row_number() OVER (PARTITION BY pairs.story_id
+					ORDER BY COALESCE(other.published_at, other.created_at) DESC, other.id DESC) AS rank
+			FROM (
+				SELECT DISTINCT ON (mine.story_id, theirs.story_id)
+					mine.story_id, theirs.story_id AS other_id, mine.cve_id
+				FROM story_cves AS mine
+				JOIN story_cves AS theirs ON theirs.cve_id = mine.cve_id AND theirs.story_id <> mine.story_id
+				WHERE mine.story_id = ANY($1)
+				ORDER BY mine.story_id, theirs.story_id, mine.cve_id
+			) AS pairs
+			JOIN stories AS other ON other.id = pairs.other_id
+		) AS ranked
+		WHERE rank <= $2
+		ORDER BY story_id, rank`, ids, maxRelatedPerStory)
 	if err != nil {
 		return fmt.Errorf("query related stories: %w", err)
 	}

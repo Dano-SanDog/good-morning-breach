@@ -157,3 +157,21 @@ func TestAnalyzeStoryExtractsCVEs(t *testing.T) {
 		t.Fatalf("CVEs = %#v", got.CVEs)
 	}
 }
+
+func TestAnalyzeStoryAmbiguousSingleCueNeedsCorroboration(t *testing.T) {
+	index := newTestIndex(t)
+	for _, title := range []string{
+		"Court rules on breach of contract case",
+		"Akira Kurosawa retrospective opens",
+		"Company updates its cloud pricing",
+		"Company reviews its holiday policy",
+	} {
+		got := AnalyzeStory(index, Input{Title: title})
+		if got.Engine != EngineBaseline && len(got.Categories) > 0 && got.Categories[0] != "other" {
+			t.Errorf("%q: engine %q categories %v; want no category from one weak cue", title, got.Engine, got.Categories)
+		}
+		if got.Risk == RiskHigh || got.Risk == RiskCritical {
+			t.Errorf("%q: risk %v from a single weak cue", title, got.Risk)
+		}
+	}
+}

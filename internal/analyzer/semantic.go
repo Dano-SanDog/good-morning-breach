@@ -52,7 +52,7 @@ var semanticCategoryCues = map[string][]weightedCue{
 	},
 	"ransomware": {
 		{"ransomware", 3}, {"ransom demand", 2}, {"double extortion", 2}, {"extortion gang", 2},
-		{"lockbit", 3}, {"blackcat", 3}, {"alphv", 3}, {"akira", 2}, {"clop", 2}, {"play ransomware", 3},
+		{"lockbit", 3}, {"blackcat", 3}, {"alphv", 3}, {"akira", 1}, {"clop", 1}, {"play ransomware", 3},
 	},
 	"malware": {
 		{"malware", 3}, {"botnet", 3}, {"trojan", 3}, {"infostealer", 3}, {"info-stealer", 3},
@@ -64,17 +64,17 @@ var semanticCategoryCues = map[string][]weightedCue{
 		{"data breach", 3}, {"breach exposes", 3}, {"breached", 2}, {"exposed data", 3},
 		{"records exposed", 3}, {"data leak", 3}, {"leaked data", 2}, {"data exposure", 3},
 		{"customer data", 1}, {"personal data", 1}, {"stolen data", 2}, {"data theft", 2},
-		{"exfiltrated", 2}, {"exposed database", 3}, {"breach", 2}, {"leak", 1},
+		{"exfiltrated", 2}, {"exposed database", 3}, {"breach", 1}, {"leak", 1},
 	},
 	"phishing-social-engineering": {
 		{"phishing", 3}, {"spear-phishing", 3}, {"spearphishing", 3}, {"social engineering", 3},
-		{"credential theft", 3}, {"credential harvesting", 3}, {"scam", 2}, {"scams", 2},
+		{"credential theft", 3}, {"credential harvesting", 3}, {"scam", 1}, {"scams", 1},
 		{"smishing", 3}, {"vishing", 3}, {"business email compromise", 3}, {"bec", 2},
 		{"impersonation", 1}, {"fake", 1}, {"mfa fatigue", 3}, {"clickfix", 3},
 	},
 	"nation-state-activity": {
 		{"nation-state", 3}, {"nation state", 3}, {"state-sponsored", 3}, {"state sponsored", 3},
-		{"state-backed", 3}, {"state backed", 3}, {"apt", 2}, {"espionage", 2}, {"cyber espionage", 3},
+		{"state-backed", 3}, {"state backed", 3}, {"apt", 1}, {"espionage", 2}, {"cyber espionage", 3},
 		{"north korea", 2}, {"north korean", 2}, {"lazarus", 3}, {"russia-linked", 3}, {"china-linked", 3},
 		{"iran-linked", 3}, {"russian hackers", 2}, {"chinese hackers", 2}, {"iranian hackers", 2},
 		{"sandworm", 3}, {"volt typhoon", 3}, {"salt typhoon", 3}, {"apt28", 3}, {"apt29", 3},
@@ -86,7 +86,7 @@ var semanticCategoryCues = map[string][]weightedCue{
 		{"build system", 1}, {"github action", 1}, {"github actions", 1},
 	},
 	"cloud-infrastructure": {
-		{"cloud", 2}, {"aws", 2}, {"azure", 2}, {"google cloud", 2}, {"gcp", 2}, {"kubernetes", 2},
+		{"cloud", 1}, {"aws", 1}, {"azure", 2}, {"google cloud", 2}, {"gcp", 2}, {"kubernetes", 2},
 		{"docker", 1}, {"container", 1}, {"s3 bucket", 2}, {"misconfigured", 2}, {"saas", 2},
 		{"infrastructure", 1}, {"data center", 1}, {"datacenter", 1},
 	},
@@ -96,7 +96,7 @@ var semanticCategoryCues = map[string][]weightedCue{
 		{"internet disruption", 3}, {"service disruption", 2}, {"botnet attack", 1}, {"traffic spike", 1},
 	},
 	"policy-regulation": {
-		{"policy", 2}, {"regulation", 3}, {"regulations", 3}, {"legislation", 3}, {"sanction", 2},
+		{"policy", 1}, {"regulation", 3}, {"regulations", 3}, {"legislation", 3}, {"sanction", 2},
 		{"sanctions", 2}, {"sanctioned", 2}, {"law", 1}, {"lawmakers", 2}, {"congress", 2},
 		{"senate", 2}, {"gdpr", 3}, {"fine", 1}, {"fined", 2}, {"executive order", 3},
 		{"compliance", 1}, {"bill", 1}, {"directive", 1}, {"surveillance", 1}, {"privacy", 1},
