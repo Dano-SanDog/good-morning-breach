@@ -35,11 +35,26 @@ type State struct {
 	LastAttemptAt  *time.Time
 }
 
+// Channel names, stored in delivery records and channel state.
+const (
+	ChannelEmail = "email"
+	ChannelSlack = "slack"
+)
+
+// Contacts holds the per-account channel choices and the decrypted contact data
+// that only the alerting path may read (SC-074).
+type Contacts struct {
+	EmailEnabled       bool
+	SlackEnabled       bool
+	SlackWebhookSealed []byte
+}
+
 type Recipient struct {
 	AccountID int64
 	Email     string
 	Settings  Settings
-	State     State
+	Contacts  Contacts
+	States    map[string]State
 }
 
 type Technique struct {
@@ -73,24 +88,53 @@ type Story struct {
 type Store interface {
 	ListRecipients(context.Context) ([]Recipient, error)
 	StoriesForAlert(ctx context.Context, risks []string, since, until time.Time, limit int) ([]Story, error)
-	RecordSuccess(ctx context.Context, accountID int64, slot, until, attemptedAt time.Time, stories int) error
-	RecordFailure(ctx context.Context, accountID int64, slot, attemptedAt time.Time, cause string) error
+	RecordSuccess(ctx context.Context, accountID int64, channel string, slot, until, attemptedAt time.Time, stories int) error
+	RecordFailure(ctx context.Context, accountID int64, channel string, slot, attemptedAt time.Time, cause string) error
 }
 
 type Sender interface {
 	Send(ctx context.Context, to string, message Message) error
 }
 
-type Service struct {
-	store  Store
-	sender Sender
+// Channel delivers one rendered alert over one medium. Each channel keeps its own
+// schedule state and retries, so a failure on one never stops another (FR-4.18).
+type Channel interface {
+	Name() string
+	// Enabled reports whether the recipient chose this channel and it is usable.
+	Enabled(Recipient) bool
+	// StoryLimit is the maximum number of stories the channel shows.
+	StoryLimit() int
+	// Deliver renders the stories for this channel and sends them. The returned
+	// error text is stored as the failure cause, so it must hold no secrets.
+	Deliver(ctx context.Context, recipient Recipient, stories []Story, now time.Time) error
 }
 
-func NewService(store Store, sender Sender) (*Service, error) {
-	if store == nil || sender == nil {
-		return nil, errors.New("alert store and sender are required")
+type Service struct {
+	store    Store
+	channels []Channel
+}
+
+func NewService(store Store, channels ...Channel) (*Service, error) {
+	if store == nil || len(channels) == 0 {
+		return nil, errors.New("alert store and at least one channel are required")
 	}
-	return &Service{store: store, sender: sender}, nil
+	return &Service{store: store, channels: channels}, nil
+}
+
+// EmailChannel sends the full alert through a Sender.
+type EmailChannel struct{ sender Sender }
+
+func NewEmailChannel(sender Sender) *EmailChannel { return &EmailChannel{sender: sender} }
+
+func (*EmailChannel) Name() string             { return ChannelEmail }
+func (*EmailChannel) Enabled(r Recipient) bool { return r.Contacts.EmailEnabled && r.Email != "" }
+func (*EmailChannel) StoryLimit() int          { return MaxStories }
+func (c *EmailChannel) Deliver(ctx context.Context, r Recipient, stories []Story, now time.Time) error {
+	message, err := Render(stories, r.Settings, now)
+	if err != nil {
+		return err
+	}
+	return c.sender.Send(ctx, r.Email, message)
 }
 
 // RisksAtOrAbove returns the risk values that meet a minimum risk (FR-4.9, FR-4.10).
@@ -143,67 +187,84 @@ func Due(settings Settings, state State, now time.Time) (time.Time, bool) {
 	return slot, true
 }
 
-// RunOnce delivers every alert that is due at now.
+// RunOnce delivers every alert that is due at now, on every enabled channel.
 func (s *Service) RunOnce(ctx context.Context, now time.Time) error {
 	recipients, err := s.store.ListRecipients(ctx)
 	if err != nil {
 		return fmt.Errorf("list alert recipients: %w", err)
 	}
 	for _, recipient := range recipients {
-		if ctx.Err() != nil {
-			return nil
+		for _, channel := range s.channels {
+			if ctx.Err() != nil {
+				return nil
+			}
+			if !channel.Enabled(recipient) {
+				continue
+			}
+			slot, due := Due(recipient.Settings, recipient.States[channel.Name()], now)
+			if !due {
+				continue
+			}
+			s.deliver(ctx, channel, recipient, slot, now)
 		}
-		slot, due := Due(recipient.Settings, recipient.State, now)
-		if !due {
-			continue
-		}
-		s.deliver(ctx, recipient, slot, now)
 	}
 	return nil
 }
 
-func (s *Service) deliver(ctx context.Context, recipient Recipient, slot, now time.Time) {
+func (s *Service) deliver(ctx context.Context, channel Channel, recipient Recipient, slot, now time.Time) {
+	name := channel.Name()
+	state := recipient.States[name]
 	since := now.Add(-firstAlertLookback)
-	if recipient.State.LastAlertAt != nil {
-		since = *recipient.State.LastAlertAt
+	if state.LastAlertAt != nil {
+		since = *state.LastAlertAt
 	}
 	fail := func(cause string, err error) {
 		slog.Error("morning alert failed",
 			"event", "alert_delivery", "outcome", "failure",
-			"account_id", recipient.AccountID, "channel", "email", "reason", cause, "error", err)
+			"account_id", recipient.AccountID, "channel", name, "reason", cause, "error", err)
 		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
-		if recordErr := s.store.RecordFailure(recordCtx, recipient.AccountID, slot, now, cause); recordErr != nil {
-			slog.Error("record alert failure", "event", "alert_delivery", "account_id", recipient.AccountID, "error", recordErr)
+		if recordErr := s.store.RecordFailure(recordCtx, recipient.AccountID, name, slot, now, cause); recordErr != nil {
+			slog.Error("record alert failure", "event", "alert_delivery", "account_id", recipient.AccountID, "channel", name, "error", recordErr)
 		}
 	}
 
-	stories, err := s.store.StoriesForAlert(ctx, RisksAtOrAbove(recipient.Settings.MinimumRisk), since, now, MaxStories)
+	stories, err := s.store.StoriesForAlert(ctx, RisksAtOrAbove(recipient.Settings.MinimumRisk), since, now, channel.StoryLimit())
 	if err != nil {
 		fail("could not select stories", err)
 		return
 	}
-	message, err := Render(stories, recipient.Settings, now)
-	if err != nil {
-		fail("could not render the alert", err)
-		return
-	}
 	sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
-	if err := s.sender.Send(sendCtx, recipient.Email, message); err != nil {
-		fail("email delivery failed", err)
+	if err := channel.Deliver(sendCtx, recipient, stories, now); err != nil {
+		var delivery *DeliveryError
+		if errors.As(err, &delivery) {
+			fail(delivery.Cause, err)
+		} else {
+			fail(name+" delivery failed", err)
+		}
 		return
 	}
 	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer recordCancel()
-	if err := s.store.RecordSuccess(recordCtx, recipient.AccountID, slot, now, now, len(stories)); err != nil {
-		slog.Error("record alert success", "event", "alert_delivery", "account_id", recipient.AccountID, "error", err)
+	if err := s.store.RecordSuccess(recordCtx, recipient.AccountID, name, slot, now, now, len(stories)); err != nil {
+		slog.Error("record alert success", "event", "alert_delivery", "account_id", recipient.AccountID, "channel", name, "error", err)
 		return
 	}
 	slog.Info("morning alert sent",
 		"event", "alert_delivery", "outcome", "success",
-		"account_id", recipient.AccountID, "channel", "email", "stories", len(stories))
+		"account_id", recipient.AccountID, "channel", name, "stories", len(stories))
 }
+
+// DeliveryError carries a failure cause that is safe to store and show: it never
+// contains a webhook address, credential, or response body.
+type DeliveryError struct {
+	Cause string
+	Err   error
+}
+
+func (e *DeliveryError) Error() string { return e.Cause }
+func (e *DeliveryError) Unwrap() error { return e.Err }
 
 // RunPeriodically checks for due alerts until ctx ends.
 func RunPeriodically(ctx context.Context, service *Service, interval time.Duration) error {

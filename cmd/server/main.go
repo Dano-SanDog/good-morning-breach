@@ -20,6 +20,7 @@ import (
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
 	"github.com/Dano-SanDog/good-morning-breach/internal/retention"
+	"github.com/Dano-SanDog/good-morning-breach/internal/secrets"
 	"github.com/Dano-SanDog/good-morning-breach/internal/store/postgres"
 )
 
@@ -126,7 +127,26 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load client assets; run npm run build first: %w", err)
 	}
-	server, err := httpserver.NewApplication(identityService, assets, catalogService)
+	dataKey, err := secrets.CreateDataKeyIfMissing()
+	if err != nil {
+		return fmt.Errorf("load data key: %w", err)
+	}
+	secretBox, err := secrets.NewBox(dataKey)
+	if err != nil {
+		return fmt.Errorf("configure secret box: %w", err)
+	}
+	alertStore := postgres.NewAlertStore(pool)
+	channelClient := egress.NewHTTPClient()
+	slackChannel := alerting.NewSlackChannel(channelClient, secretBox)
+	channels := []alerting.Channel{slackChannel}
+	if sender != nil {
+		channels = append(channels, alerting.NewEmailChannel(sender))
+	}
+	contactService, err := alerting.NewContactService(alertStore, secretBox, slackChannel)
+	if err != nil {
+		return fmt.Errorf("configure alert channels: %w", err)
+	}
+	server, err := httpserver.NewApplication(identityService, assets, catalogService, contactService)
 	if err != nil {
 		return fmt.Errorf("configure HTTPS server: %w", err)
 	}
@@ -159,22 +179,17 @@ func run() error {
 	}()
 
 	alertsDone := make(chan struct{})
-	if sender != nil {
-		alertService, err := alerting.NewService(postgres.NewAlertStore(pool), sender)
-		if err != nil {
-			return fmt.Errorf("configure alert delivery: %w", err)
-		}
-		go func() {
-			defer close(alertsDone)
-			if err := alerting.RunPeriodically(runCtx, alertService, alertCheckInterval); err != nil {
-				slog.Error("alert scheduler stopped", "event", "alert_scheduler", "outcome", "failure", "error", err)
-			}
-		}()
-		slog.Info("starting alert scheduler", "event", "alert_scheduler", "outcome", "started")
-	} else {
-		close(alertsDone)
-		slog.Warn("GB_SMTP_HOST is not set; morning alerts are disabled", "event", "alert_scheduler", "outcome", "disabled")
+	alertService, err := alerting.NewService(alertStore, channels...)
+	if err != nil {
+		return fmt.Errorf("configure alert delivery: %w", err)
 	}
+	go func() {
+		defer close(alertsDone)
+		if err := alerting.RunPeriodically(runCtx, alertService, alertCheckInterval); err != nil {
+			slog.Error("alert scheduler stopped", "event", "alert_scheduler", "outcome", "failure", "error", err)
+		}
+	}()
+	slog.Info("starting alert scheduler", "event", "alert_scheduler", "outcome", "started", "channels", len(channels))
 
 	slog.Info(
 		"starting collection scheduler",

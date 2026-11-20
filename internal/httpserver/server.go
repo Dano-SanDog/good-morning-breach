@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/Dano-SanDog/good-morning-breach/internal/alerting"
 	"github.com/Dano-SanDog/good-morning-breach/internal/catalog"
 	"io"
 	"io/fs"
@@ -31,7 +32,7 @@ func New() (*http.Server, error) {
 	return newHTTPServer(router)
 }
 
-func NewApplication(service *identity.Service, assets fs.FS, catalogService ...*catalog.Service) (*http.Server, error) {
+func NewApplication(service *identity.Service, assets fs.FS, extras ...any) (*http.Server, error) {
 	if service == nil {
 		return nil, errors.New("identity service is required")
 	}
@@ -41,7 +42,7 @@ func NewApplication(service *identity.Service, assets fs.FS, catalogService ...*
 	if _, err := fs.Stat(assets, "index.html"); err != nil {
 		return nil, fmt.Errorf("client bundle is unavailable; run npm run build: %w", err)
 	}
-	router, err := newRouter(service, assets, catalogService...)
+	router, err := newRouter(service, assets, extras...)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +74,7 @@ func newHTTPServer(handler http.Handler) (*http.Server, error) {
 	}, nil
 }
 
-func newRouter(service *identity.Service, assets fs.FS, catalogService ...*catalog.Service) (*gin.Engine, error) {
+func newRouter(service *identity.Service, assets fs.FS, extras ...any) (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 	router.Use(recoveryMiddleware(), correlationMiddleware(), securityHeaders(), limitRequestBody())
@@ -83,9 +84,16 @@ func newRouter(service *identity.Service, assets fs.FS, catalogService ...*catal
 	}
 	if service != nil {
 		registerRoutes(router, service, assets)
-		for _, svc := range catalogService {
-			if svc != nil {
-				registerCatalogRoutes(router, svc)
+		for _, extra := range extras {
+			switch svc := extra.(type) {
+			case *catalog.Service:
+				if svc != nil {
+					registerCatalogRoutes(router, svc)
+				}
+			case *alerting.ContactService:
+				if svc != nil {
+					registerChannelRoutes(router, service, svc)
+				}
 			}
 		}
 	}
