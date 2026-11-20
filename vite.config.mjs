@@ -8,5 +8,6 @@ export default defineConfig({
   build: {
     outDir: "internal/httpserver/static/build",
     sourcemap: false,
+    assetsInlineLimit: 0,
   },
 });
