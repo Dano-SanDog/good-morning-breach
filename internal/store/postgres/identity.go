@@ -196,9 +196,9 @@ func (s *IdentityStore) UpdateAccount(
 		WHERE id = $1`, targetID, updatedRole, updatedEnabled); err != nil {
 		return fmt.Errorf("update account: %w", err)
 	}
-	if currentEnabled && !updatedEnabled {
+	if (currentEnabled && !updatedEnabled) || updatedRole != currentRole {
 		if _, err := tx.Exec(queryCtx, `DELETE FROM auth_sessions WHERE account_id = $1`, targetID); err != nil {
-			return fmt.Errorf("revoke disabled account sessions: %w", err)
+			return fmt.Errorf("revoke account sessions: %w", err)
 		}
 	}
 
