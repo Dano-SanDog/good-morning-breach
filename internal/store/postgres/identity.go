@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -508,6 +509,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 		COALESCE(stories.published_at, stories.created_at),
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
+		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class)),
 		stories.risk,
 		stories.sentiment,
 		array_agg(DISTINCT categories.name ORDER BY categories.name),
@@ -561,14 +563,16 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 	var stories []identity.Story
 	for rows.Next() {
 		var story identity.Story
-		var attackTechniquesJSON []byte
+		var attackTechniquesJSON, rightsJSON []byte
+		var raw contentrights.Raw
 		if err := rows.Scan(
 			&story.ID,
-			&story.Title,
-			&story.URL,
+			&raw.Title,
+			&raw.URL,
 			&story.PublishedAt,
 			&story.Sources,
 			&story.Attributions,
+			&rightsJSON,
 			&story.Risk,
 			&story.Sentiment,
 			&story.Categories,
@@ -577,6 +581,11 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 		); err != nil {
 			return nil, fmt.Errorf("scan recent story: %w", err)
 		}
+		rights, err := contentrights.ParseSources(rightsJSON)
+		if err != nil {
+			return nil, err
+		}
+		story.Content = contentrights.Gate(raw, rights)
 		if err := json.Unmarshal(attackTechniquesJSON, &story.AttackTechniques); err != nil {
 			return nil, fmt.Errorf("decode recent story ATT&CK techniques: %w", err)
 		}

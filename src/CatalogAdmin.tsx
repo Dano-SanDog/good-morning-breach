@@ -16,6 +16,7 @@ export type CatalogSource = {
   permittedUse: string;
   attribution: string;
   contentPolicy: string;
+  rightsClass: string;
   pollIntervalSeconds: number;
   enabled: boolean;
   requireCompleteTitle: boolean;
@@ -35,6 +36,10 @@ export const contentPolicies = [
   ["verbatim_excerpt", "Verbatim excerpt"],
   ["system_summary", "System summary"],
   ["full_text", "Full text"],
+] as const;
+export const rightsClasses = [
+  ["licensed", "Licensed for the use recorded above"],
+  ["all_rights_reserved", "All rights reserved (headline, source name, and link only)"],
 ] as const;
 const fallbackCategoryID = "other";
 
@@ -61,13 +66,13 @@ export function parseCatalogSources(value: unknown): CatalogSource[] | null {
         typeof item.address !== "string" || typeof item.format !== "string" ||
         typeof item.licenseName !== "string" || typeof item.licenseUrl !== "string" ||
         typeof item.permittedUse !== "string" || typeof item.attribution !== "string" ||
-        typeof item.contentPolicy !== "string" || typeof item.pollIntervalSeconds !== "number" ||
+        typeof item.contentPolicy !== "string" || typeof item.rightsClass !== "string" || typeof item.pollIntervalSeconds !== "number" ||
         typeof item.enabled !== "boolean" || typeof item.requireCompleteTitle !== "boolean" ||
         typeof item.storyCount !== "number") return null;
     out.push({
       id: item.id, name: item.name, address: item.address, format: item.format,
       licenseName: item.licenseName, licenseUrl: item.licenseUrl, permittedUse: item.permittedUse,
-      attribution: item.attribution, contentPolicy: item.contentPolicy,
+      attribution: item.attribution, contentPolicy: item.contentPolicy, rightsClass: item.rightsClass,
       pollIntervalSeconds: item.pollIntervalSeconds, enabled: item.enabled,
       requireCompleteTitle: item.requireCompleteTitle, storyCount: item.storyCount,
     });
@@ -115,6 +120,7 @@ type SourceDraft = {
   permittedUse: string;
   attribution: string;
   contentPolicy: string;
+  rightsClass: string;
   pollIntervalHours: string;
   enabled: boolean;
   requireCompleteTitle: boolean;
@@ -122,7 +128,7 @@ type SourceDraft = {
 
 const emptyDraft: SourceDraft = {
   name: "", address: "", format: "rss", licenseName: "", licenseUrl: "", permittedUse: "",
-  attribution: "", contentPolicy: "headline_link", pollIntervalHours: "1", enabled: false,
+  attribution: "", contentPolicy: "headline_link", rightsClass: "licensed", pollIntervalHours: "1", enabled: false,
   requireCompleteTitle: false,
 };
 
@@ -130,7 +136,7 @@ function draftFromSource(source: CatalogSource): SourceDraft {
   return {
     name: source.name, address: source.address, format: source.format, licenseName: source.licenseName,
     licenseUrl: source.licenseUrl, permittedUse: source.permittedUse, attribution: source.attribution,
-    contentPolicy: source.contentPolicy, pollIntervalHours: String(source.pollIntervalSeconds / 3600),
+    contentPolicy: source.contentPolicy, rightsClass: source.rightsClass, pollIntervalHours: String(source.pollIntervalSeconds / 3600),
     enabled: source.enabled, requireCompleteTitle: source.requireCompleteTitle,
   };
 }
@@ -139,7 +145,8 @@ export function sourceRequestBody(draft: SourceDraft): Record<string, unknown> {
   return {
     name: draft.name, address: draft.address, format: draft.format, licenseName: draft.licenseName,
     licenseUrl: draft.licenseUrl, permittedUse: draft.permittedUse, attribution: draft.attribution,
-    contentPolicy: draft.contentPolicy, pollIntervalSeconds: Math.round(Number(draft.pollIntervalHours) * 3600),
+    contentPolicy: draft.rightsClass === "all_rights_reserved" ? "headline_link" : draft.contentPolicy,
+    rightsClass: draft.rightsClass, pollIntervalSeconds: Math.round(Number(draft.pollIntervalHours) * 3600),
     enabled: draft.enabled, requireCompleteTitle: draft.requireCompleteTitle,
   };
 }
@@ -333,9 +340,13 @@ export function CatalogAdmin({ onChanged }: { onChanged?: () => void }) {
           <label>License or terms link (HTTPS)<input type="url" maxLength={2048} required value={draft.licenseUrl} onChange={(event) => setDraft({ ...draft, licenseUrl: event.target.value })} /></label>
           <label>Permitted use<textarea maxLength={2000} required rows={2} value={draft.permittedUse} onChange={(event) => setDraft({ ...draft, permittedUse: event.target.value })} /></label>
           <label>Attribution text<input maxLength={1000} required value={draft.attribution} onChange={(event) => setDraft({ ...draft, attribution: event.target.value })} /></label>
-          <label>Content the system may show<select value={draft.contentPolicy} onChange={(event) => setDraft({ ...draft, contentPolicy: event.target.value })}>
+          <label>Rights class<select value={draft.rightsClass} onChange={(event) => setDraft({ ...draft, rightsClass: event.target.value, contentPolicy: event.target.value === "all_rights_reserved" ? "headline_link" : draft.contentPolicy })}>
+            {rightsClasses.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select></label>
+          <label>Content the system may show<select value={draft.contentPolicy} disabled={draft.rightsClass === "all_rights_reserved"} aria-describedby="policy-reason" onChange={(event) => setDraft({ ...draft, contentPolicy: event.target.value })}>
             {contentPolicies.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select></label>
+          {draft.rightsClass === "all_rights_reserved" && <p id="policy-reason" className="helper">All rights reserved sources show only the headline, source name, and link.</p>}
           <label>Poll interval in hours (1 to 24; use more than 1 only where the source terms require it)<input type="number" min={1} max={24} step={1} required value={draft.pollIntervalHours} onChange={(event) => setDraft({ ...draft, pollIntervalHours: event.target.value })} /></label>
           <label className="checkbox-label"><input type="checkbox" checked={draft.requireCompleteTitle} onChange={(event) => setDraft({ ...draft, requireCompleteTitle: event.target.checked })} /> Skip items with a truncated title</label>
           <label className="checkbox-label"><input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} /> Enabled</label>

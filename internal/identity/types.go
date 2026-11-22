@@ -5,6 +5,8 @@ import (
 	"errors"
 	"log/slog"
 	"time"
+
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 )
 
 var (
@@ -88,9 +90,9 @@ func (LoginResult) LogValue() slog.Value {
 }
 
 type Story struct {
-	ID               int64             `json:"id"`
-	Title            string            `json:"title"`
-	URL              string            `json:"url"`
+	ID int64 `json:"id"`
+	// Content is set only by contentrights.Gate (SC-023).
+	contentrights.Content
 	Sources          []string          `json:"sources"`
 	Attributions     []string          `json:"attributions"`
 	PublishedAt      *time.Time        `json:"publishedAt"`

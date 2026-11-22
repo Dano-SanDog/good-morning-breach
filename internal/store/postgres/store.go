@@ -98,7 +98,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 
 	rows, err := s.pool.Query(queryCtx, `SELECT
 		id, name, address, license_name, license_url, permitted_use,
-		attribution, content_policy, poll_interval_seconds, last_success_at, GREATEST(last_success_at, last_failure_at), format, require_complete_title
+		attribution, content_policy, rights_class, poll_interval_seconds, last_success_at, GREATEST(last_success_at, last_failure_at), format, require_complete_title
 		FROM data_sources
 		WHERE enabled
 		ORDER BY id`)
@@ -121,6 +121,7 @@ func (s *Store) ListEnabledSources(ctx context.Context) ([]ingest.Source, error)
 			&source.PermittedUse,
 			&source.Attribution,
 			&source.ContentPolicy,
+			&source.RightsClass,
 			&pollIntervalSeconds,
 			&lastSuccessAt,
 			&lastAttemptAt,

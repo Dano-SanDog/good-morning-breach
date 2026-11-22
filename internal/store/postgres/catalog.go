@@ -22,13 +22,13 @@ func NewCatalogStore(pool *pgxpool.Pool) *CatalogStore {
 }
 
 const sourceColumns = `id, name, address, format, license_name, license_url, permitted_use,
-	attribution, content_policy, poll_interval_seconds, enabled, require_complete_title,
+	attribution, content_policy, rights_class, poll_interval_seconds, enabled, require_complete_title,
 	(SELECT count(*) FROM story_sources ss WHERE ss.source_id = data_sources.id), updated_at`
 
 func scanSource(row pgx.Row) (catalog.Source, error) {
 	var s catalog.Source
 	err := row.Scan(&s.ID, &s.Name, &s.Address, &s.Format, &s.LicenseName, &s.LicenseURL,
-		&s.PermittedUse, &s.Attribution, &s.ContentPolicy, &s.PollIntervalSeconds, &s.Enabled,
+		&s.PermittedUse, &s.Attribution, &s.ContentPolicy, &s.RightsClass, &s.PollIntervalSeconds, &s.Enabled,
 		&s.RequireCompleteTitle, &s.StoryCount, &s.UpdatedAt)
 	return s, err
 }
@@ -157,13 +157,13 @@ func (s *CatalogStore) CreateSource(ctx context.Context, actorID int64, src cata
 	err := s.inTx(ctx, func(tx pgx.Tx) error {
 		created, err := scanSource(tx.QueryRow(ctx, `INSERT INTO data_sources (
 				id, name, address, format, license_name, license_url, permitted_use, attribution,
-				content_policy, poll_interval_seconds, enabled, require_complete_title)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+				content_policy, rights_class, poll_interval_seconds, enabled, require_complete_title)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 			RETURNING id, name, address, format, license_name, license_url, permitted_use,
-				attribution, content_policy, poll_interval_seconds, enabled,
+				attribution, content_policy, rights_class, poll_interval_seconds, enabled,
 				require_complete_title, 0::bigint, updated_at`,
 			src.ID, src.Name, src.Address, src.Format, src.LicenseName, src.LicenseURL,
-			src.PermittedUse, src.Attribution, src.ContentPolicy, src.PollIntervalSeconds,
+			src.PermittedUse, src.Attribution, src.ContentPolicy, src.RightsClass, src.PollIntervalSeconds,
 			src.Enabled, src.RequireCompleteTitle))
 		if err != nil {
 			return err
@@ -181,11 +181,11 @@ func (s *CatalogStore) UpdateSource(ctx context.Context, actorID int64, src cata
 		tag, err := tx.Exec(ctx, `UPDATE data_sources SET
 				name = $2, address = $3, format = $4, license_name = $5, license_url = $6,
 				permitted_use = $7, attribution = $8, content_policy = $9,
-				poll_interval_seconds = $10, enabled = $11, require_complete_title = $12,
+				rights_class = $10, poll_interval_seconds = $11, enabled = $12, require_complete_title = $13,
 				updated_at = now()
 			WHERE id = $1`,
 			src.ID, src.Name, src.Address, src.Format, src.LicenseName, src.LicenseURL,
-			src.PermittedUse, src.Attribution, src.ContentPolicy, src.PollIntervalSeconds,
+			src.PermittedUse, src.Attribution, src.ContentPolicy, src.RightsClass, src.PollIntervalSeconds,
 			src.Enabled, src.RequireCompleteTitle)
 		if err != nil {
 			return err
@@ -230,7 +230,7 @@ func (s *CatalogStore) inTx(ctx context.Context, fn func(pgx.Tx) error) error {
 func sourceAuditDetails(src catalog.Source) map[string]any {
 	return map[string]any{
 		"name": src.Name, "address": src.Address, "format": src.Format,
-		"enabled": src.Enabled, "contentPolicy": src.ContentPolicy,
+		"enabled": src.Enabled, "contentPolicy": src.ContentPolicy, "rightsClass": src.RightsClass,
 		"pollIntervalSeconds": src.PollIntervalSeconds, "requireCompleteTitle": src.RequireCompleteTitle,
 	}
 }

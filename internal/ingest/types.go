@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 )
 
 type ContentPolicy string
@@ -40,6 +42,7 @@ type Source struct {
 	PermittedUse   string
 	Attribution    string
 	ContentPolicy  ContentPolicy
+	RightsClass    string // empty means licensed
 	PollInterval   time.Duration
 	LastSuccessAt  *time.Time
 	LastAttemptAt  *time.Time // latest success or failure; gates the next fetch
@@ -64,12 +67,11 @@ func (s Source) Validate() error {
 	default:
 		return errors.New("source format is invalid")
 	}
-	switch s.ContentPolicy {
-	case ContentFullText, ContentVerbatimExcerpt, ContentSystemSummary, ContentHeadlineLink:
-		return nil
-	default:
-		return errors.New("source content policy is invalid")
+	rights := s.RightsClass
+	if rights == "" {
+		rights = contentrights.RightsLicensed
 	}
+	return contentrights.ValidateSource(contentrights.Source{Policy: string(s.ContentPolicy), Rights: rights})
 }
 
 func isHTTPSURL(raw string) bool {

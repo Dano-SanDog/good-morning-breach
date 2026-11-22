@@ -99,6 +99,8 @@ func TestCreateSourceValidation(t *testing.T) {
 		"no license":              func(s *Source) { s.LicenseName = " " },
 		"bad format":              func(s *Source) { s.Format = "xml" },
 		"bad policy":              func(s *Source) { s.ContentPolicy = "everything" },
+		"arr with summary":        func(s *Source) { s.RightsClass = "all_rights_reserved"; s.ContentPolicy = "system_summary" },
+		"bad rights class":        func(s *Source) { s.RightsClass = "public_domain" },
 		"fast poll":               func(s *Source) { s.PollIntervalSeconds = 60 },
 		"slow poll":               func(s *Source) { s.PollIntervalSeconds = 86401 },
 		"control chars":           func(s *Source) { s.Name = "Bad\x00Name" },
@@ -202,5 +204,21 @@ func TestCategoryNameValidation(t *testing.T) {
 	got, err := svc.CreateCategory(context.Background(), "t", "  Zero Day Brokers ")
 	if err != nil || got.ID != "zero-day-brokers" || got.Name != "Zero Day Brokers" {
 		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+func TestAllRightsReservedSourceAccepted(t *testing.T) {
+	store := &fakeStore{}
+	svc := newTestService(t, fakeAuth{}, store)
+	s := validSource()
+	s.RightsClass = "all_rights_reserved"
+	got, err := svc.CreateSource(context.Background(), "t", s)
+	if err != nil || got.RightsClass != "all_rights_reserved" || got.ContentPolicy != "headline_link" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	s = validSource()
+	got, err = svc.CreateSource(context.Background(), "t", s)
+	if err != nil || got.RightsClass != "licensed" {
+		t.Fatalf("default rights class: %+v, %v", got, err)
 	}
 }

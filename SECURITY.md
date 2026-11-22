@@ -237,10 +237,10 @@ All retrieved 2026-11-13.
 
 **SC-023 — Content rights single gate**
 - **Status:** ACTIVE
-- **Rule:** Every output path (API story responses, email, Slack) MUST get the displayable fields of a story from the single Source registry function. No other code path MAY read stored excerpt text for output.
-- **Enforcement:** Source registry (DR-4).
+- **Rule:** Every output path (API story responses, email, Slack) MUST get the displayable fields of a story from the single `contentrights.Gate` function. No other code path MAY read stored excerpt text for output. The gate fails closed (no sources, unknown policy, or an `all_rights_reserved` source ⇒ headline and link only, FR-1.21) and uses the most restrictive source of a story.
+- **Enforcement:** `internal/contentrights` (DR-4); stores return gated `contentrights.Content`; a guard test (`guard_test.go`) fails if another type declares excerpt/summary/body fields or an output `Story` stops embedding `Content`.
 - **Evidence:** FR-8.8, FR-8.9, FR-1.21; ARCHITECTURE.md DR-4. This is a project decision, not a public-source control.
-- **Verification:** For a "headline and link only" source, the API, email, and Slack outputs contain no excerpt.
+- **Verification:** For a "headline and link only" source, the API, email, and Slack outputs contain no excerpt. An all-rights-reserved source with any other policy is rejected by the catalog and by a database CHECK.
 
 **SC-024 — Untrusted STIX data**
 - **Status:** ACTIVE

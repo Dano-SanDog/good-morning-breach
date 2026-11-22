@@ -8,6 +8,7 @@ import (
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/alerting"
 	"github.com/Dano-SanDog/good-morning-breach/internal/analyzer"
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -82,6 +83,7 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 		stories.id, stories.title, stories.canonical_url, stories.published_at,
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
+		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class)),
 		stories.risk, stories.sentiment,
 		array_agg(DISTINCT categories.name ORDER BY categories.name),
 		COALESCE(
@@ -116,11 +118,17 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 	var stories []alerting.Story
 	for rows.Next() {
 		var story alerting.Story
-		var techniquesJSON []byte
-		if err := rows.Scan(&story.ID, &story.Title, &story.URL, &story.PublishedAt, &story.Sources, &story.Attributions,
-			&story.Risk, &story.Sentiment, &story.Categories, &techniquesJSON, &story.CVEs); err != nil {
+		var techniquesJSON, rightsJSON []byte
+		var raw contentrights.Raw
+		if err := rows.Scan(&story.ID, &raw.Title, &raw.URL, &story.PublishedAt, &story.Sources, &story.Attributions,
+			&rightsJSON, &story.Risk, &story.Sentiment, &story.Categories, &techniquesJSON, &story.CVEs); err != nil {
 			return nil, fmt.Errorf("scan alert story: %w", err)
 		}
+		rights, err := contentrights.ParseSources(rightsJSON)
+		if err != nil {
+			return nil, err
+		}
+		story.Content = contentrights.Gate(raw, rights)
 		var techniques []struct {
 			ID      string   `json:"id"`
 			Name    string   `json:"name"`

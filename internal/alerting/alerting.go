@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"slices"
 	"time"
+
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 )
 
 const (
@@ -71,11 +73,11 @@ type RelatedStory struct {
 }
 
 type Story struct {
-	ID           int64
-	CVEs         []string
-	Related      []RelatedStory
-	Title        string
-	URL          string
+	ID      int64
+	CVEs    []string
+	Related []RelatedStory
+	// Content is set only by contentrights.Gate (SC-023).
+	contentrights.Content
 	Sources      []string
 	Attributions []string
 	PublishedAt  *time.Time
