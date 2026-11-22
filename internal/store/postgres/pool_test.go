@@ -45,7 +45,7 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 	defer pool.Close()
 	setup := []string{
 		`CREATE TEMP TABLE stories (id bigint PRIMARY KEY, title text, canonical_url text, published_at timestamptz, created_at timestamptz, risk text, sentiment text)`,
-		`CREATE TEMP TABLE data_sources (id text PRIMARY KEY, name text, attribution text, enabled boolean, last_success_at timestamptz, last_failure_at timestamptz, last_failure_cause text)`,
+		`CREATE TEMP TABLE data_sources (id text PRIMARY KEY, name text, attribution text, enabled boolean, last_success_at timestamptz, last_failure_at timestamptz, last_failure_cause text, content_policy text DEFAULT 'headline_link', rights_class text DEFAULT 'licensed')`,
 		`CREATE TEMP TABLE story_sources (story_id bigint, source_id text)`,
 		`CREATE TEMP TABLE categories (id text PRIMARY KEY, name text)`,
 		`CREATE TEMP TABLE story_categories (story_id bigint, category_id text)`,
@@ -54,7 +54,7 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 		`CREATE TEMP TABLE story_cves (story_id bigint, cve_id text)`,
 		`INSERT INTO story_cves VALUES (1, 'CVE-2026-1111'), (2, 'CVE-2026-1111'), (3, 'CVE-2026-1111'), (1, 'CVE-2026-2222'), (2, 'CVE-2026-2222')`,
 		`CREATE TEMP TABLE collection_runs (source_id text, outcome text, finished_at timestamptz)`,
-		`INSERT INTO data_sources VALUES
+		`INSERT INTO data_sources (id, name, attribution, enabled, last_success_at, last_failure_at, last_failure_cause) VALUES
 				  ('a', 'Feed A', 'A notice', true, now() - interval '30 hours', now() - interval '1 hour', 'failed'),
 				  ('b', 'Feed B', 'B notice', true, now() - interval '1 hour', now() - interval '25 hours', 'old failure')`,
 		`INSERT INTO collection_runs VALUES
@@ -185,7 +185,8 @@ func TestListEnabledSourcesScansFormatAndTitleRule(t *testing.T) {
 		`CREATE TEMP TABLE data_sources (id text, name text, address text, license_name text, license_url text,
 			permitted_use text, attribution text, content_policy text, poll_interval_seconds bigint,
 			enabled boolean, last_success_at timestamptz, last_failure_at timestamptz, format text NOT NULL DEFAULT 'rss',
-			require_complete_title boolean NOT NULL DEFAULT false)`,
+			require_complete_title boolean NOT NULL DEFAULT false,
+			rights_class text NOT NULL DEFAULT 'licensed')`,
 		`INSERT INTO data_sources (id, name, address, license_name, license_url, permitted_use, attribution,
 			content_policy, poll_interval_seconds, enabled, format, require_complete_title) VALUES
 			('a', 'A', 'https://a.test', 'l', 'https://l.test', 'p', 'n', 'headline_link', 3600, true, 'cisa_kev_json', true),

@@ -4,7 +4,7 @@
 
 A private, non-commercial morning cybersecurity news feed. Good Morning Breach collects security news from licensed open sources, categorizes and scores each story, tags it with MITRE ATT&CK techniques, and sends each user a morning alert. Logged-in users can also browse all stories on a dashboard.
 
-> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email and Slack alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. The core workflows are built; story summaries, the content-rights gate, and the hardening items under "Remaining work" are not. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
+> **Status:** The application supports approved RSS and JSON sources, initial-admin setup, password-only sign-in, an authenticated stories dashboard with filters and administrator source-health warnings, administrator account management with an audit log, automatic retention of stories and delivery records, saved alert preferences, scheduled email and Slack alerts, password reset by email, and admin-editable categories and data sources. A local semantic engine assigns categories, risk, and sentiment, extracts CVE IDs, groups related stories by shared CVE, and adds ATT&CK tags from the pinned Enterprise bundle; email alerts show these. The core workflows are built; story summaries and the hardening items under "Remaining work" are not. See [REQUIREMENTS.md](REQUIREMENTS.md) for the full, numbered requirements and [DESIGN.md](DESIGN.md) for the design system. This README is a summary; if the two disagree, REQUIREMENTS.md wins.
 
 ## Goals
 
@@ -220,6 +220,7 @@ Text message (SMS, Twilio) alerts and phone verification were built and then del
 - [x] MITRE ATT&CK mapping and email presentation (headline phrase and cue-based tags; shown on the dashboard and in email)
 - [x] Complete authentication and roles (admin account management and audit log are implemented; password reset requires SMTP, see Email setup)
 - [x] Dashboard: filters, admin source status, footer notices, catalog administration, CVE IDs, and related stories
+- [x] Content-rights gate and the "all rights reserved" source type (`internal/contentrights`)
 - [ ] Dashboard summaries and summary search (see Remaining work)
 - [x] Add alert delivery (scheduled delivery with retries; email and Slack channels)
 - [x] Retention job, password reset, admin audit log
@@ -228,15 +229,14 @@ Text message (SMS, Twilio) alerts and phone verification were built and then del
 
 Reviewed 2026-11-20 against REQUIREMENTS.md, SECURITY.md, ARCHITECTURE.md, and DESIGN.md. In priority order:
 
-1. **Content-rights gate (FR-1.21, FR-8.8, FR-8.9, SC-023, DR-4).** Collection stores headlines and links only, so nothing is shown that a source forbids today, but the policy is not enforced in one place. Needed before any summary or excerpt is stored: one Source registry function for every output path, and the "all rights reserved" source type.
-2. **Story summaries and summary search (FR-4.12, FR-5.2, FR-5.5)**, only where the content rule permits (verbatim excerpt only for Securelist, per FR-8.9). Depends on item 1.
-3. **Attribution on every surface (FR-8.5, FR-8.11, FR-8.12).** Source notices are rendered only with the selected stories, so an empty alert carries none. HIBP credit and the SANS licence mark should be explicit per surface.
-4. **Migration safety.** The migrator does not refuse a database that is newer than the binary (`internal/store/postgres/migrate.go`). Add a fail-closed check.
-5. **Backup and restore.** No documented procedure for the single local PostgreSQL database and the data key (losing the key makes stored Slack webhooks unreadable). Document a schedule, protected storage, and a restore test.
-6. **Dashboard design gaps (DESIGN.md).** Times use the browser time zone, not the saved alert time zone; account deletion uses `window.prompt` instead of a dialog; no two-minute idle-timeout warning with "Stay signed in"; related-story links do not show the destination domain; no risk count bar.
-7. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
-8. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
-9. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
+1. **Story summaries and summary search (FR-4.12, FR-5.2, FR-5.5)**, only where the content rule permits (verbatim excerpt only for Securelist, per FR-8.9). Must read content only through the content-rights gate (`internal/contentrights`).
+2. **Attribution on every surface (FR-8.5, FR-8.11, FR-8.12).** Source notices are rendered only with the selected stories, so an empty alert carries none. HIBP credit and the SANS licence mark should be explicit per surface.
+3. **Migration safety.** The migrator does not refuse a database that is newer than the binary (`internal/store/postgres/migrate.go`). Add a fail-closed check.
+4. **Backup and restore.** No documented procedure for the single local PostgreSQL database and the data key (losing the key makes stored Slack webhooks unreadable). Document a schedule, protected storage, and a restore test.
+5. **Dashboard design gaps (DESIGN.md).** Times use the browser time zone, not the saved alert time zone; account deletion uses `window.prompt` instead of a dialog; no two-minute idle-timeout warning with "Stay signed in"; related-story links do not show the destination domain; no risk count bar.
+6. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
+7. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
+8. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
 
 **Known unverified:**
 - Slack: only tested against fake local servers and one real test message; message formatting, long titles, and rate limiting on a real workspace are unchecked.

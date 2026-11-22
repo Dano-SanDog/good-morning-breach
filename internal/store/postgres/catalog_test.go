@@ -66,7 +66,7 @@ func TestCatalogStoreWithMigratedPostgres(t *testing.T) {
 	source := catalog.Source{
 		ID: "catalog-test-source", Name: "Catalog Test Source", Address: "https://example.com/feed.xml",
 		Format: "rss", LicenseName: "CC BY", LicenseURL: "https://example.com/l", PermittedUse: "headline",
-		Attribution: "Example", ContentPolicy: "headline_link", PollIntervalSeconds: 3600, Enabled: true,
+		Attribution: "Example", ContentPolicy: "headline_link", RightsClass: "licensed", PollIntervalSeconds: 3600, Enabled: true,
 	}
 	if _, err := store.CreateSource(ctx, actor, source); err != nil {
 		t.Fatal(err)
@@ -76,12 +76,16 @@ func TestCatalogStoreWithMigratedPostgres(t *testing.T) {
 	}
 	source.RequireCompleteTitle = true
 	source.Enabled = false
+	source.RightsClass = "all_rights_reserved"
 	if err := store.UpdateSource(ctx, actor, source); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := store.GetSource(ctx, source.ID)
-	if err != nil || !stored.RequireCompleteTitle || stored.Enabled {
+	if err != nil || !stored.RequireCompleteTitle || stored.Enabled || stored.RightsClass != "all_rights_reserved" {
 		t.Fatalf("source = %+v, %v", stored, err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE data_sources SET content_policy = 'full_text' WHERE id = $1`, source.ID); err == nil {
+		t.Fatal("database accepted an all-rights-reserved source with a full_text policy")
 	}
 	if err := store.DeleteSource(ctx, actor, source.ID); err != nil {
 		t.Fatal(err)

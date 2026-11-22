@@ -21,6 +21,7 @@ type sourceRequest struct {
 	PermittedUse         *string `json:"permittedUse"`
 	Attribution          *string `json:"attribution"`
 	ContentPolicy        *string `json:"contentPolicy"`
+	RightsClass          *string `json:"rightsClass"`
 	PollIntervalSeconds  *int64  `json:"pollIntervalSeconds"`
 	Enabled              *bool   `json:"enabled"`
 	RequireCompleteTitle *bool   `json:"requireCompleteTitle"`
@@ -30,7 +31,7 @@ func (r sourceRequest) patch() catalog.SourcePatch {
 	return catalog.SourcePatch{
 		Name: r.Name, Address: r.Address, Format: r.Format, LicenseName: r.LicenseName,
 		LicenseURL: r.LicenseURL, PermittedUse: r.PermittedUse, Attribution: r.Attribution,
-		ContentPolicy: r.ContentPolicy, PollIntervalSeconds: r.PollIntervalSeconds,
+		ContentPolicy: r.ContentPolicy, RightsClass: r.RightsClass, PollIntervalSeconds: r.PollIntervalSeconds,
 		Enabled: r.Enabled, RequireCompleteTitle: r.RequireCompleteTitle,
 	}
 }
@@ -153,7 +154,7 @@ func (h *catalogHandlers) createSource(c *gin.Context) {
 		Name: deref(request.Name), Address: deref(request.Address), Format: deref(request.Format),
 		LicenseName: deref(request.LicenseName), LicenseURL: deref(request.LicenseURL),
 		PermittedUse: deref(request.PermittedUse), Attribution: deref(request.Attribution),
-		ContentPolicy: deref(request.ContentPolicy), PollIntervalSeconds: deref(request.PollIntervalSeconds),
+		ContentPolicy: deref(request.ContentPolicy), RightsClass: deref(request.RightsClass), PollIntervalSeconds: deref(request.PollIntervalSeconds),
 		Enabled: deref(request.Enabled), RequireCompleteTitle: deref(request.RequireCompleteTitle),
 	})
 	if err != nil {

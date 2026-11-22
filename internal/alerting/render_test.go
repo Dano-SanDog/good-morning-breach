@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 )
 
 func TestRenderCVEsRelatedAndAttribution(t *testing.T) {
@@ -51,5 +53,25 @@ func TestRenderUnsafeLinksAndControlCharacters(t *testing.T) {
 		if strings.Contains(message.Text, "javascript:") || strings.Contains(message.Text, "http://") {
 			t.Fatalf("unsafe link in text part for %q", link)
 		}
+	}
+}
+
+// Until a summary or excerpt is rendered through the gate (SC-023), no output
+// may carry them, even if a Story somehow holds them.
+func TestOutputsNeverEmitExcerptOrSummary(t *testing.T) {
+	story := Story{Content: contentrights.Content{Title: "T", URL: "https://example.org/a", Excerpt: "SECRET-EXCERPT", Summary: "SECRET-SUMMARY"},
+		Sources: []string{"Example"}, Risk: "High", Categories: []string{"Malware"}}
+	settings := Settings{TimeZone: "UTC", MinimumRisk: "Medium"}
+	msg, err := Render([]Story{story}, settings, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slack, err := RenderSlack([]Story{story}, settings, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := msg.HTML + msg.Text + slack
+	if strings.Contains(all, "SECRET-") {
+		t.Fatal("rendered output contains ungated content")
 	}
 }

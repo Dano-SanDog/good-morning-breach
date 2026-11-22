@@ -182,10 +182,17 @@ test("parses catalog categories and rejects malformed data", () => {
 test("source request body converts hours to seconds and licence gate checks both fields", () => {
   const body = sourceRequestBody({
     name: "S", address: "https://example.org/feed", format: "rss", licenseName: "L", licenseUrl: "https://example.org/l",
-    permittedUse: "p", attribution: "a", contentPolicy: "headline_link", pollIntervalHours: "2",
+    permittedUse: "p", attribution: "a", contentPolicy: "headline_link", rightsClass: "licensed", pollIntervalHours: "2",
     enabled: false, requireCompleteTitle: true,
   });
   expect(body.pollIntervalSeconds).toBe(7200);
+  expect(body.rightsClass).toBe("licensed");
+  const arr = sourceRequestBody({
+    name: "S", address: "https://example.org/feed", format: "rss", licenseName: "L", licenseUrl: "https://example.org/l",
+    permittedUse: "p", attribution: "a", contentPolicy: "full_text", rightsClass: "all_rights_reserved", pollIntervalHours: "2",
+    enabled: false, requireCompleteTitle: true,
+  });
+  expect(arr.contentPolicy).toBe("headline_link");
   expect(hasLicenceRecord({ licenseName: "L", licenseUrl: "" })).toBe(false);
   expect(hasLicenceRecord({ licenseName: "L", licenseUrl: "https://example.org/l" })).toBe(true);
 });

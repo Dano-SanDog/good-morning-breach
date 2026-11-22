@@ -12,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Dano-SanDog/good-morning-breach/internal/contentrights"
 	"github.com/Dano-SanDog/good-morning-breach/internal/egress"
 	"github.com/Dano-SanDog/good-morning-breach/internal/identity"
 	"github.com/Dano-SanDog/good-morning-breach/internal/ingest"
@@ -57,6 +58,7 @@ type Source struct {
 	PermittedUse         string    `json:"permittedUse"`
 	Attribution          string    `json:"attribution"`
 	ContentPolicy        string    `json:"contentPolicy"`
+	RightsClass          string    `json:"rightsClass"`
 	PollIntervalSeconds  int64     `json:"pollIntervalSeconds"`
 	Enabled              bool      `json:"enabled"`
 	RequireCompleteTitle bool      `json:"requireCompleteTitle"`
@@ -73,6 +75,7 @@ type SourcePatch struct {
 	PermittedUse         *string
 	Attribution          *string
 	ContentPolicy        *string
+	RightsClass          *string
 	PollIntervalSeconds  *int64
 	Enabled              *bool
 	RequireCompleteTitle *bool
@@ -246,6 +249,9 @@ func applyPatch(source *Source, patch SourcePatch) {
 	if patch.ContentPolicy != nil {
 		source.ContentPolicy = *patch.ContentPolicy
 	}
+	if patch.RightsClass != nil {
+		source.RightsClass = *patch.RightsClass
+	}
 	if patch.PollIntervalSeconds != nil {
 		source.PollIntervalSeconds = *patch.PollIntervalSeconds
 	}
@@ -287,10 +293,13 @@ func normalizeSource(source Source) (Source, error) {
 	if source.Format == "" {
 		source.Format = string(ingest.FormatRSS)
 	}
+	if source.RightsClass == "" {
+		source.RightsClass = contentrights.RightsLicensed
+	}
 	candidate := ingest.Source{
 		ID: "x", Name: source.Name, Address: source.Address, LicenseName: source.LicenseName,
 		LicenseURL: source.LicenseURL, PermittedUse: source.PermittedUse, Attribution: source.Attribution,
-		ContentPolicy: ingest.ContentPolicy(source.ContentPolicy), Format: ingest.Format(source.Format),
+		ContentPolicy: ingest.ContentPolicy(source.ContentPolicy), RightsClass: source.RightsClass, Format: ingest.Format(source.Format),
 		PollInterval: time.Duration(source.PollIntervalSeconds) * time.Second,
 	}
 	if err := candidate.Validate(); err != nil {
