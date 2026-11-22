@@ -141,6 +141,53 @@ func TestCreateSourceGeneratesSlugID(t *testing.T) {
 	}
 }
 
+func TestSecurelistSourceRestrictions(t *testing.T) {
+	source := validSource()
+	source.Address = "https://feeds.securelist.com./feed/"
+	source.RequireCompleteTitle = true
+	for _, policy := range []string{"headline_link", "verbatim_excerpt", "full_text"} {
+		source.ContentPolicy = policy
+		if _, err := normalizeSource(source); err != nil {
+			t.Errorf("policy %q: %v", policy, err)
+		}
+	}
+	source.ContentPolicy = "system_summary"
+	if _, err := normalizeSource(source); err == nil {
+		t.Fatal("Securelist accepted modified summaries")
+	}
+	source.ContentPolicy = "headline_link"
+	source.RequireCompleteTitle = false
+	if _, err := normalizeSource(source); err == nil {
+		t.Fatal("Securelist accepted shortened titles")
+	}
+
+	source.Address = "https://notsecurelist.com/feed/"
+	if _, err := normalizeSource(source); err != nil {
+		t.Fatalf("unrelated domain was restricted: %v", err)
+	}
+}
+
+func TestUpdateSecurelistSourceRejectsUnsafeChanges(t *testing.T) {
+	source := validSource()
+	source.ID = "securelist"
+	source.Address = "https://securelist.com/feed/"
+	source.RequireCompleteTitle = true
+	store := &fakeStore{sources: map[string]Source{source.ID: source}}
+	svc := newTestService(t, fakeAuth{}, store)
+
+	policy := "system_summary"
+	if err := svc.UpdateSource(context.Background(), "t", source.ID, SourcePatch{ContentPolicy: &policy}); err == nil {
+		t.Fatal("accepted a modified-summary policy")
+	}
+	complete := false
+	if err := svc.UpdateSource(context.Background(), "t", source.ID, SourcePatch{RequireCompleteTitle: &complete}); err == nil {
+		t.Fatal("accepted shortened titles")
+	}
+	if got := store.sources[source.ID]; got.ContentPolicy != source.ContentPolicy || !got.RequireCompleteTitle {
+		t.Fatalf("rejected update modified the source: %+v", got)
+	}
+}
+
 func TestUpdateSourceMergesAndRevalidates(t *testing.T) {
 	existing := validSource()
 	existing.ID = "example-advisories"
