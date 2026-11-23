@@ -305,6 +305,19 @@ func normalizeSource(source Source) (Source, error) {
 	if err := candidate.Validate(); err != nil {
 		return Source{}, invalid("%s", err.Error())
 	}
+	address, err := url.Parse(source.Address)
+	if err != nil {
+		return Source{}, invalid("source address must be an absolute HTTPS URL")
+	}
+	host := strings.TrimRight(strings.ToLower(address.Hostname()), ".")
+	if host == "securelist.com" || strings.HasSuffix(host, ".securelist.com") {
+		if source.ContentPolicy == string(ingest.ContentSystemSummary) {
+			return Source{}, invalid("Securelist terms do not permit modified summaries")
+		}
+		if !source.RequireCompleteTitle {
+			return Source{}, invalid("Securelist sources must skip truncated titles")
+		}
+	}
 	return source, nil
 }
 
