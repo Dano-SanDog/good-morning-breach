@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"net/url"
@@ -11,10 +12,21 @@ import (
 	"unicode"
 )
 
+// logoEmailPNG is the 360 px logo sent inline (CID) with the HTML part, so no
+// remote image is needed.
+//
+//go:embed assets/logo-email.png
+var logoEmailPNG []byte
+
+// logoCID is the Content-ID that the HTML part references as cid:good-morning-breach-logo.
+const logoCID = "good-morning-breach-logo"
+
 type Message struct {
 	Subject string
 	Text    string
 	HTML    string
+	// LogoPNG, when set, is attached inline to the HTML part under logoCID.
+	LogoPNG []byte
 }
 
 type linkView struct {
@@ -98,6 +110,7 @@ var chipColors = map[string]string{
 var htmlTemplate = template.Must(template.New("alert").Parse(`<!doctype html>
 <html lang="en"><body style="margin:0;padding:16px;background:#EFEEF5;color:#1D1A3B;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5">
 <div style="max-width:600px;margin:0 auto;background:#FFFFFF;padding:16px">
+<img src="cid:good-morning-breach-logo" width="300" alt="Good Morning Breach" style="display:block;width:300px;max-width:100%;height:auto;margin:0 0 12px;border:0">
 <h1 style="font-size:24px;margin:0 0 8px">Good morning</h1>
 <p style="margin:0 0 16px;color:#4E4A6B">{{.Heading}}</p>
 {{range .Stories}}<div style="border-left:6px solid {{.ChipColor}};padding:8px 12px;margin:0 0 16px;border-top:1px solid #D9D7E5">
@@ -212,5 +225,5 @@ func Render(stories []Story, settings Settings, now time.Time) (Message, error) 
 	}{heading, views, anyTechniques}); err != nil {
 		return Message{}, fmt.Errorf("render alert HTML: %w", err)
 	}
-	return Message{Subject: subject, Text: text.String(), HTML: body.String()}, nil
+	return Message{Subject: subject, Text: text.String(), HTML: body.String(), LogoPNG: logoEmailPNG}, nil
 }

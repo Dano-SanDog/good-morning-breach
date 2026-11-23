@@ -75,3 +75,42 @@ func TestOutputsNeverEmitExcerptOrSummary(t *testing.T) {
 		t.Fatal("rendered output contains ungated content")
 	}
 }
+
+func TestEmailCarriesInlineLogo(t *testing.T) {
+	message := Message{Subject: "s", Text: "plain", HTML: `<img src="cid:` + logoCID + `">`, LogoPNG: logoEmailPNG}
+	raw, err := buildMessage("a@example.org", "b@example.org", message, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{"multipart/related", "Content-Id: <" + logoCID + ">", "image/png", "cid:" + logoCID} {
+		if !strings.Contains(strings.ToLower(got), strings.ToLower(want)) {
+			t.Errorf("message missing %q", want)
+		}
+	}
+	if len(logoEmailPNG) == 0 || len(logoEmailPNG) > 60*1024 {
+		t.Errorf("logo size %d out of range", len(logoEmailPNG))
+	}
+	rendered, err := Render(nil, Settings{TimeZone: "UTC", MinimumRisk: "Medium"}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rendered.HTML, "cid:"+logoCID) || strings.Contains(rendered.Text, "cid:") || len(rendered.LogoPNG) == 0 {
+		t.Error("rendered alert must reference the inline logo only in HTML")
+	}
+}
+
+func TestSlackPayloadStartsWithLogoImageBlock(t *testing.T) {
+	payload := slackPayload("*Good Morning Breach*: one\n" + strings.Repeat("line of text\n", 400))
+	if payload.Blocks[0].Type != "image" || payload.Blocks[0].ImageURL != SlackLogoURL || payload.Blocks[0].AltText == "" {
+		t.Fatalf("first block = %+v", payload.Blocks[0])
+	}
+	if len(payload.Blocks) < 3 {
+		t.Fatalf("long text should split into sections, got %d blocks", len(payload.Blocks))
+	}
+	for _, block := range payload.Blocks[1:] {
+		if block.Type != "section" || len(block.Text.Text) > 3000 {
+			t.Fatalf("bad section block %+v", block)
+		}
+	}
+}

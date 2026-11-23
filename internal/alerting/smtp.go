@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -306,28 +307,74 @@ func buildMessage(from, to string, message Message, now time.Time) ([]byte, erro
 	}
 	var out bytes.Buffer
 	out.WriteString(strings.Join(headers, "\r\n") + "\r\n\r\n")
-	for _, part := range []struct{ contentType, content string }{
-		{"text/plain; charset=utf-8", message.Text},
-		{"text/html; charset=utf-8", message.HTML},
-	} {
-		partWriter, err := writer.CreatePart(textproto.MIMEHeader{
-			"Content-Type":              {part.contentType},
-			"Content-Transfer-Encoding": {"quoted-printable"},
-		})
-		if err != nil {
+	if err := writeQuotedPart(writer, "text/plain; charset=utf-8", message.Text); err != nil {
+		return nil, err
+	}
+	if len(message.LogoPNG) == 0 {
+		if err := writeQuotedPart(writer, "text/html; charset=utf-8", message.HTML); err != nil {
 			return nil, err
 		}
-		encoder := quotedprintable.NewWriter(partWriter)
-		if _, err := encoder.Write([]byte(part.content)); err != nil {
-			return nil, err
-		}
-		if err := encoder.Close(); err != nil {
-			return nil, err
-		}
+	} else if err := writeRelatedHTML(writer, message); err != nil {
+		return nil, err
 	}
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
 	out.Write(buffer.Bytes())
 	return out.Bytes(), nil
+}
+
+func writeQuotedPart(writer *multipart.Writer, contentType, content string) error {
+	partWriter, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {contentType},
+		"Content-Transfer-Encoding": {"quoted-printable"},
+	})
+	if err != nil {
+		return err
+	}
+	encoder := quotedprintable.NewWriter(partWriter)
+	if _, err := encoder.Write([]byte(content)); err != nil {
+		return err
+	}
+	return encoder.Close()
+}
+
+// writeRelatedHTML writes the HTML part together with its inline logo as
+// multipart/related, referenced from the HTML by cid.
+func writeRelatedHTML(outer *multipart.Writer, message Message) error {
+	var inner bytes.Buffer
+	related := multipart.NewWriter(&inner)
+	if err := writeQuotedPart(related, "text/html; charset=utf-8", message.HTML); err != nil {
+		return err
+	}
+	imagePart, err := related.CreatePart(textproto.MIMEHeader{
+		"Content-Type":              {"image/png; name=\"logo.png\""},
+		"Content-Transfer-Encoding": {"base64"},
+		"Content-ID":                {"<" + logoCID + ">"},
+		"Content-Disposition":       {"inline; filename=\"logo.png\""},
+	})
+	if err != nil {
+		return err
+	}
+	encoded := base64.StdEncoding.EncodeToString(message.LogoPNG)
+	for len(encoded) > 76 {
+		if _, err := imagePart.Write([]byte(encoded[:76] + "\r\n")); err != nil {
+			return err
+		}
+		encoded = encoded[76:]
+	}
+	if _, err := imagePart.Write([]byte(encoded + "\r\n")); err != nil {
+		return err
+	}
+	if err := related.Close(); err != nil {
+		return err
+	}
+	part, err := outer.CreatePart(textproto.MIMEHeader{
+		"Content-Type": {"multipart/related; type=\"text/html\"; boundary=" + related.Boundary()},
+	})
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(inner.Bytes())
+	return err
 }

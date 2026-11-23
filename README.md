@@ -91,7 +91,7 @@ The full design system is in [DESIGN.md](DESIGN.md). A static preview of the pal
   - Destructive actions need confirmation. Deleting an account means typing its email.
   - Sign-in has one generic error, including for a locked account.
   - Collected content is shown as plain text only.
-- **Logo:** [design/logo/logo-source.png](design/logo/logo-source.png) is the master (2000 px); the app uses the optimised [src/assets/logo.png](src/assets/logo.png) and the favicon [src/assets/icon.png](src/assets/icon.png).
+- **Logo:** [design/logo/logo-source.png](design/logo/logo-source.png) is the master (2000 px); the app uses the optimised [src/assets/logo.png](src/assets/logo.png) and the favicon [src/assets/icon.png](src/assets/icon.png). Alerts use [internal/alerting/assets/logo-email.png](internal/alerting/assets/logo-email.png): inline in email, and in Slack through its public raw.githubusercontent.com URL on `main` (requires the repository to stay public; it will not show until this file is merged to `main`).
 
 ## Access Control
 
