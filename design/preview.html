@@ -137,22 +137,12 @@ footer.notices p{margin:0}
 </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="mark" viewBox="0 0 64 64">
-    <rect width="64" height="64" rx="12" fill="#1D1A3B"/>
-    <path d="M8 44 A24 24 0 0 1 56 44" fill="none" stroke="#EFEEF5" stroke-width="4" stroke-dasharray="9 4"/>
-    <path d="M16 44 A16 16 0 0 1 48 44" fill="none" stroke="#EFEEF5" stroke-width="4"/>
-    <path d="M22 44 A10 10 0 0 1 42 44 Z" fill="#F4B740"/>
-    <path d="M33 31 L29 38 L34 39 L30 47 L36 38 L31 37 L35 31 Z" fill="#1D1A3B"/>
-    <path d="M6 44 H28 M36 44 H58" stroke="#EFEEF5" stroke-width="4" stroke-linecap="square"/>
-  </symbol>
-</svg>
 
 <p class="sample">Design preview. Stories, CVE numbers and accounts below are illustrative samples, not real events.</p>
 
 <!-- ============ MAIN SCREEN: DASHBOARD ============ -->
 <header class="bar">
-  <span class="brand"><svg width="32" height="32" style="outline:1px solid #6E6A92;border-radius:7px" aria-hidden="true"><use href="#mark"/></svg>Good Morning Breach</span>
+  <span class="brand"><img src="../src/assets/logo.png" height="40" alt="Good Morning Breach"></span>
   <nav aria-label="Main">
     <a href="#dash" aria-current="page">Stories</a>
     <a href="#settings">Alert settings</a>
@@ -260,9 +250,7 @@ footer.notices p{margin:0}
   <section>
     <h2>Logo</h2>
     <div class="row">
-      <svg class="mark16" role="img" aria-label="Logo at 16 pixels"><use href="#mark"/></svg>
-      <svg class="mark32" role="img" aria-label="Logo at 32 pixels"><use href="#mark"/></svg>
-      <svg class="mark128" role="img" aria-label="Logo at 128 pixels"><use href="#mark"/></svg>
+      <img src="../src/assets/logo.png" width="360" alt="Good Morning Breach logo at 360 pixels wide"><img src="../src/assets/icon.png" width="64" height="64" alt="Emblem icon at 64 pixels">
     </div>
   </section>
 
@@ -350,7 +338,7 @@ footer.notices p{margin:0}
   <section>
     <h2>Sign-in error</h2>
     <form class="signin" action="#">
-      <span class="brand" style="display:flex;gap:10px;align-items:center;font-weight:700"><svg width="28" height="28" aria-hidden="true"><use href="#mark"/></svg>Good Morning Breach</span>
+      <span class="brand"><img src="../src/assets/logo.png" width="240" style="max-width:100%;height:auto" alt="Good Morning Breach"></span>
       <div class="alertbox" role="alert"><strong>Email or password is incorrect.</strong> Check both and try again.</div>
       <div class="field"><label for="s1">Email address</label><input class="input" id="s1" value="jo@example.org" autocomplete="username"></div>
       <div class="field"><label for="s2">Password</label><input class="input" id="s2" type="password" value="xxxxxxxxxxxx" autocomplete="current-password"></div>

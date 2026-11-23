@@ -1,4 +1,4 @@
-<p align="center"><img src="logo.svg" width="96" height="96" alt="Good Morning Breach logo: a dawn sun over a broken horizon"></p>
+<p align="center"><img src="src/assets/logo.png" width="360" alt="Good Morning Breach logo: a flaming shield around a risk gauge above the name banner"></p>
 
 # Good Morning Breach
 
@@ -82,7 +82,7 @@ The server deletes stories 365 days after collection (FR-10.1) and alert deliver
 
 The full design system is in [DESIGN.md](DESIGN.md). A static preview of the palette, type scale, components, and dashboard is in [design/preview.html](design/preview.html). Open the preview file locally in a browser.
 
-- **Look:** a pre-dawn palette, with night-indigo ink on a pale first-light background. The dawn amber appears only in the logo.
+- **Look:** a pre-dawn palette, with night-indigo ink on a pale first-light background. The dawn amber is a palette token reserved for the logo; the current logo has its own flame colours.
 - **Risk at a glance:** each story has a left risk spine. It gets thicker and darker as risk rises, from 8 px for Critical to 2 px for Informational. Risk always shows as a word, a colour, and a spine width together.
 - **Type:** Atkinson Hyperlegible Next, self-hosted. Atkinson Hyperlegible Mono is used only for CVE and ATT&CK IDs.
 - **Accessibility:** every colour pair meets WCAG 2.2 AA. Controls show a visible focus ring and have touch targets of at least 44 px.
@@ -91,7 +91,7 @@ The full design system is in [DESIGN.md](DESIGN.md). A static preview of the pal
   - Destructive actions need confirmation. Deleting an account means typing its email.
   - Sign-in has one generic error, including for a locked account.
   - Collected content is shown as plain text only.
-- **Logo:** [logo.svg](logo.svg) is a dawn sun over a broken horizon, split by a breach crack.
+- **Logo:** [design/logo/logo-source.png](design/logo/logo-source.png) is the master (2000 px); the app uses the optimised [src/assets/logo.png](src/assets/logo.png) and the favicon [src/assets/icon.png](src/assets/icon.png).
 
 ## Access Control
 

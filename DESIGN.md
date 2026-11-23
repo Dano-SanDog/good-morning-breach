@@ -200,7 +200,8 @@ Night indigo and first light, plus a five-step risk ramp. Every text pair passes
 - **First light (#EFEEF5, neutral):** the page background. Content sits on white (#FFFFFF, surface). The product has a light theme only. *(delegated decision)* Dark mode is not supported.
 - **Outline (#7C7898):** input and control borders. It meets the 3:1 component contrast. Hairline (#D9D7E5) is used for decorative dividers only and never for the only boundary of a control.
 - **Risk ramp:** Critical #A3142E, High #A8420A, Medium #7A5B00, Low #2C6A47, Informational #4B5574. White text on each chip passes 6.0:1 or better. Risk is never shown by colour alone: the word and the spine width carry it too.
-- **Dawn (#F4B740):** used only in the logo, where it sits on ink. It is never used for text on light backgrounds.
+- **Logo:** from 2026-11-23 the project logo is the flaming shield and gauge emblem above the "Good Morning Breach" banner. It replaces the earlier dawn-sun mark and is the logo going forward. The master is `design/logo/logo-source.png` (2000 px). The app uses `src/assets/logo.png` (720 px wide, shown at 40 px high in the account bar and up to 280 px wide on sign-in) and `src/assets/icon.png` (128 px emblem crop, favicon). The logo already contains the name, so the account bar shows it instead of separate text. It is transparent-backed; it is shown directly on the ink account bar and white panels. The email and Slack alerts use no logo (no remote images).
+- **Dawn (#F4B740):** a palette token kept for the logo family; it sits on ink. It is never used for text on light backgrounds.
 - **Containers:** error #FBE9EC and warning #FFF1CC, both with ink text.
 
 | Pair | Ratio | Use |

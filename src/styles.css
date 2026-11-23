@@ -58,8 +58,8 @@ p {
 
 .auth-panel .brand-mark {
   display: block;
-  width: 56px;
-  height: 56px;
+  width: min(100%, 280px);
+  height: auto;
   margin: 0 auto 16px;
 }
 
@@ -165,8 +165,9 @@ button:disabled {
 }
 
 .account-brand img {
-  width: 36px;
-  height: 36px;
+  width: auto;
+  height: 40px;
+  max-width: 100%;
 }
 
 .account-email {
