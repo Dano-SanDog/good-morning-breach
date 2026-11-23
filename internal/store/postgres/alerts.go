@@ -83,7 +83,7 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 		stories.id, stories.title, stories.canonical_url, COALESCE(stories.excerpt, ''), stories.published_at,
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
-		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class)),
+		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class, 'approved', stories.excerpt_approved_at IS NOT NULL)),
 		stories.risk, stories.sentiment,
 		array_agg(DISTINCT categories.name ORDER BY categories.name),
 		COALESCE(

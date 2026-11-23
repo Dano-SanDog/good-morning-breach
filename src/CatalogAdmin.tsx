@@ -39,6 +39,7 @@ export const contentPolicies = [
 ] as const;
 export const rightsClasses = [
   ["licensed", "Licensed for the use recorded above"],
+  ["conditional", "Conditional license (an admin approves each story's excerpt)"],
   ["all_rights_reserved", "All rights reserved (headline, source name, and link only)"],
 ] as const;
 const fallbackCategoryID = "other";

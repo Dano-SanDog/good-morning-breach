@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import "./styles.css";
 import logo from "./assets/logo.png";
 import { CatalogAdmin } from "./CatalogAdmin";
+import { ReviewStories } from "./ReviewStories";
 import { ConfirmDeleteDialog, IdleWarningDialog, RiskCountBar, formatInZone } from "./DashboardParts";
 
 type User = { email: string; role: "admin" | "user" };
@@ -1294,6 +1295,7 @@ export function App() {
           </section>
         )}
         {user?.role === "admin" && <CatalogAdmin onChanged={() => void loadSourceStatuses().catch(() => undefined)} />}
+        {user?.role === "admin" && <ReviewStories />}
       </main>
       <DashboardNotices />
     </div>

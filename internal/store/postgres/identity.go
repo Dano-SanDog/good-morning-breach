@@ -509,7 +509,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 		COALESCE(stories.published_at, stories.created_at),
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
-		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class)),
+		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class, 'approved', stories.excerpt_approved_at IS NOT NULL)),
 		stories.risk,
 		stories.sentiment,
 		array_agg(DISTINCT categories.name ORDER BY categories.name),
@@ -539,7 +539,8 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 				AND NOT EXISTS (SELECT 1 FROM story_sources ss
 					JOIN data_sources src ON src.id = ss.source_id
 					WHERE ss.story_id = stories.id
-					AND NOT (src.rights_class = 'licensed' AND src.content_policy = ANY($9)))))
+					AND NOT ((src.rights_class = 'licensed' OR (src.rights_class = 'conditional' AND stories.excerpt_approved_at IS NOT NULL))
+						AND src.content_policy = ANY($9)))))
 		AND ($4 = '' OR stories.risk = $4)
 		AND ($5 = '' OR EXISTS (SELECT 1 FROM story_categories sc
 			JOIN categories cat ON cat.id = sc.category_id

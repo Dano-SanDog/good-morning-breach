@@ -64,3 +64,24 @@ func TestParseSourcesRejectsBadJSON(t *testing.T) {
 		t.Fatalf("%v %v", got, err)
 	}
 }
+
+func TestConditionalSourceNeedsStoryApproval(t *testing.T) {
+	raw := Raw{Title: "T", URL: "U", Excerpt: "E"}
+	cond := Source{Policy: PolicyVerbatimExcerpt, Rights: RightsConditional}
+	if got := Gate(raw, []Source{cond}); got.Excerpt != "" {
+		t.Fatalf("unapproved conditional story showed an excerpt: %+v", got)
+	}
+	cond.Approved = true
+	if got := Gate(raw, []Source{cond}); got.Excerpt != "E" || got.Summary != "" {
+		t.Fatalf("approved conditional: %+v", got)
+	}
+	// One unapproved conditional source keeps the story closed (most restrictive wins).
+	mixed := []Source{cond, {Policy: PolicyVerbatimExcerpt, Rights: RightsConditional}}
+	if got := Gate(raw, mixed); got.Excerpt != "" {
+		t.Fatalf("mixed: %+v", got)
+	}
+	if !MayHoldExcerpt(Source{Policy: PolicyVerbatimExcerpt, Rights: RightsConditional}) ||
+		MayHoldExcerpt(Source{Policy: PolicyHeadlineLink, Rights: RightsConditional}) {
+		t.Fatal("storage rule wrong")
+	}
+}

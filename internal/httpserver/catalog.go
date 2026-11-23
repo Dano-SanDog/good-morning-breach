@@ -3,6 +3,7 @@ package httpserver
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/catalog"
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,35 @@ func registerCatalogRoutes(router *gin.Engine, service *catalog.Service) {
 	router.POST("/api/admin/sources", requireCSRF(), h.createSource)
 	router.PATCH("/api/admin/sources/:id", requireCSRF(), h.updateSource)
 	router.DELETE("/api/admin/sources/:id", requireCSRF(), h.deleteSource)
+	router.GET("/api/admin/review-stories", h.listReviewStories)
+	router.PUT("/api/admin/review-stories/:id", requireCSRF(), h.setExcerptApproval)
+}
+
+func (h *catalogHandlers) listReviewStories(c *gin.Context) {
+	token, _ := c.Cookie(sessionCookieName)
+	stories, err := h.catalog.ListReviewStories(c.Request.Context(), token)
+	if err != nil {
+		writeCatalogError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"stories": stories})
+}
+
+func (h *catalogHandlers) setExcerptApproval(c *gin.Context) {
+	var request struct {
+		Approved *bool `json:"approved"`
+	}
+	id, parseErr := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err := decodeStrictJSON(c, &request); err != nil || request.Approved == nil || parseErr != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request."})
+		return
+	}
+	token, _ := c.Cookie(sessionCookieName)
+	if err := h.catalog.SetExcerptApproval(c.Request.Context(), token, id, *request.Approved); err != nil {
+		writeCatalogError(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 func writeCatalogError(c *gin.Context, err error) {

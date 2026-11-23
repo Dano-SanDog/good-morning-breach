@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import { CatalogAdmin, hasLicenceRecord, parseCatalogCategories, parseCatalogSources, sourceRequestBody } from "./CatalogAdmin";
 import { IdleWarningDialog, RiskCountBar, formatInZone } from "./DashboardParts";
+import { parseReviewStories } from "./ReviewStories";
 import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseChannelView, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
@@ -232,4 +233,11 @@ test("idle warning dialog announces the sign-out and offers to stay signed in", 
   expect(markup).toContain('role="alertdialog"');
   expect(markup).toContain("Stay signed in");
   expect(markup).toContain("about two minutes");
+});
+
+test("parseReviewStories validates the review payload", () => {
+  const ok = { stories: [{ id: 1, title: "t", url: "https://e.test/a", excerpt: "x", sources: ["S"], publishedAt: "2026-11-23T00:00:00Z", approvedAt: null }] };
+  expect(parseReviewStories(ok)?.[0].id).toBe(1);
+  expect(parseReviewStories({ stories: [{ ...ok.stories[0], sources: [1] }] })).toBeNull();
+  expect(parseReviewStories({})).toBeNull();
 });
