@@ -204,6 +204,8 @@ If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMT
 
 ## Backup and restore
 
+Moving to a Synology NAS VM? See [docs/NAS-DEPLOYMENT.md](docs/NAS-DEPLOYMENT.md).
+
 Back up three things: the `good_morning_breach` database, the data key (`good-morning-breach/data-key` under the OS user configuration directory, `~/Library/Application Support` on macOS), and the SMTP password file (`GB_SMTP_PASSWORD_FILE`). **Without the data key, restored Slack webhooks cannot be decrypted** and users must re-enter them. Keep the key and password file somewhere other than the database dump (a password manager or an encrypted disk image), never in the repository, and keep file copies mode `0600`. Dumps hold password hashes and sealed webhooks, so store them on encrypted storage with mode `0600`. The TLS key can be regenerated and needs no backup.
 
 Run a daily dump as the database owner from cron or a launchd `StartCalendarInterval` job (PostgreSQL reads any password from `~/.pgpass`, never the command line). Custom format, keep the newest 14:
