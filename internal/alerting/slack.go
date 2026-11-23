@@ -138,7 +138,8 @@ func RenderSlack(stories []Story, settings Settings, now time.Time) (string, err
 	}
 	var out strings.Builder
 	if len(stories) == 0 {
-		out.WriteString("Good Morning Breach: there are no new stories at or above " + slackText(settings.MinimumRisk, 20) + " since your last alert.")
+		out.WriteString("Good Morning Breach: there are no new stories at or above " + slackText(settings.MinimumRisk, 20) + " since your last alert.\n")
+		writeSlackNotices(&out)
 		return out.String(), nil
 	}
 	noun := "stories"
@@ -183,7 +184,15 @@ func RenderSlack(stories []Story, settings Settings, now time.Time) (string, err
 	if anyTechniques {
 		out.WriteString("\nTechnique tags: (c) 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.\n")
 	}
+	writeSlackNotices(&out)
 	return out.String(), nil
+}
+
+func writeSlackNotices(out *strings.Builder) {
+	out.WriteString("\n")
+	for _, notice := range SourceNotices {
+		out.WriteString(slackText(notice, 300) + "\n")
+	}
 }
 
 // SlackLogoURL is the public logo that Slack fetches for the image block.

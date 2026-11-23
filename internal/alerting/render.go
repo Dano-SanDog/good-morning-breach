@@ -107,6 +107,13 @@ var chipColors = map[string]string{
 	"Informational": "#4B5574",
 }
 
+// SourceNotices are carried by every alert, including one with no stories, so
+// the required credits (FR-8.11, FR-8.12) never depend on the selected stories.
+var SourceNotices = []string{
+	"Breach data credit: Have I Been Pwned, https://haveibeenpwned.com.",
+	"Summaries of SANS Internet Storm Center content are licensed CC BY-NC-SA 4.0, https://creativecommons.org/licenses/by-nc-sa/4.0/.",
+}
+
 var htmlTemplate = template.Must(template.New("alert").Parse(`<!doctype html>
 <html lang="en"><body style="margin:0;padding:16px;background:#EFEEF5;color:#1D1A3B;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5">
 <div style="max-width:600px;margin:0 auto;background:#FFFFFF;padding:16px">
@@ -123,6 +130,7 @@ var htmlTemplate = template.Must(template.New("alert").Parse(`<!doctype html>
 {{if .Related}}<div style="font-size:14px;color:#4E4A6B">Related ({{range $i, $r := .Related}}{{if $i}}; {{end}}{{$r.CVE}}: {{if $r.Link.URL}}<a href="{{$r.Link.URL}}" style="color:#2E2A8C">{{$r.Link.Text}}</a>{{else}}{{$r.Link.Text}}{{end}}{{end}})</div>{{end}}
 {{range .Attributions}}<div style="font-size:13px;color:#4E4A6B">{{.}}</div>
 {{end}}</div>
+{{end}}{{range .Notices}}<p style="font-size:13px;color:#4E4A6B;margin:0 0 8px">{{.}}</p>
 {{end}}{{if .Techniques}}<p style="font-size:13px;color:#4E4A6B;margin:0">Technique tags: &copy; 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.</p>{{end}}
 </div></body></html>
 `))
@@ -217,12 +225,15 @@ func Render(stories []Story, settings Settings, now time.Time) (Message, error) 
 		text.WriteString("\nTechnique tags: (c) 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.\n")
 	}
 
+	text.WriteString("\n" + strings.Join(SourceNotices, "\n") + "\n")
+
 	var body bytes.Buffer
 	if err := htmlTemplate.Execute(&body, struct {
 		Heading    string
 		Stories    []storyView
 		Techniques bool
-	}{heading, views, anyTechniques}); err != nil {
+		Notices    []string
+	}{heading, views, anyTechniques, SourceNotices}); err != nil {
 		return Message{}, fmt.Errorf("render alert HTML: %w", err)
 	}
 	return Message{Subject: subject, Text: text.String(), HTML: body.String(), LogoPNG: logoEmailPNG}, nil

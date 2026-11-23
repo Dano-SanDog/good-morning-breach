@@ -200,6 +200,31 @@ If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMT
 **Slack (no server configuration).** Each user creates an incoming webhook for their own workspace (Slack app settings, Incoming Webhooks, Add New Webhook to Workspace), then pastes it under "Alert preferences". The server creates its data key (`secrets` directory under the OS user configuration directory, mode `0600`) on first start.
 
 
+## Backup and restore
+
+Back up three things: the `good_morning_breach` database, the data key (`good-morning-breach/data-key` under the OS user configuration directory, `~/Library/Application Support` on macOS), and the SMTP password file (`GB_SMTP_PASSWORD_FILE`). **Without the data key, restored Slack webhooks cannot be decrypted** and users must re-enter them. Keep the key and password file somewhere other than the database dump (a password manager or an encrypted disk image), never in the repository, and keep file copies mode `0600`. Dumps hold password hashes and sealed webhooks, so store them on encrypted storage with mode `0600`. The TLS key can be regenerated and needs no backup.
+
+Run a daily dump as the database owner from cron or a launchd `StartCalendarInterval` job (PostgreSQL reads any password from `~/.pgpass`, never the command line). Custom format, keep the newest 14:
+
+```sh
+umask 077
+mkdir -p ~/gmb-backups
+pg_dump --format=custom --host=127.0.0.1 --username=YOUR_DB_OWNER \
+  --file=~/gmb-backups/gmb-$(date +%F).dump good_morning_breach
+ls -1t ~/gmb-backups/gmb-*.dump | tail -n +15 | xargs rm -f
+```
+
+Copy the data key and password file again whenever they change. Restore into an empty database, then run the migrator, which re-applies the `gb_app` grants and refuses a database newer than the binary:
+
+```sh
+createdb good_morning_breach_restore
+pg_restore --exit-on-error --no-owner --host=127.0.0.1 --username=YOUR_DB_OWNER \
+  --dbname=good_morning_breach_restore ~/gmb-backups/gmb-YYYY-MM-DD.dump
+GB_MIGRATION_DATABASE_URL='host=127.0.0.1 dbname=good_morning_breach_restore user=YOUR_DB_OWNER sslmode=disable' go run ./cmd/migrate
+```
+
+Restore with a binary at least as new as the one that made the dump. **Restore test (monthly):** restore into `good_morning_breach_restore` as above, never over the live database; check `SELECT count(*) FROM stories;` and `SELECT max(version) FROM schema_migrations;`; start the server against it with the same data key and confirm a saved Slack webhook still sends a test message; then `dropdb good_morning_breach_restore`. To recover the live database, stop the server, drop and recreate `good_morning_breach`, restore into it the same way, and restart.
+
 ## SMS was dropped (history)
 
 Text message (SMS, Twilio) alerts and phone verification were built and then deliberately removed. Slack plus the Slack phone app covers mobile push, so no SMS provider, sender registration, or per-message cost is needed. The `GB_TWILIO_*`, `GB_SMS_DAILY_CAP`, and `GB_SMS_CODE_DAILY_CAP` settings no longer exist. Migration 024 drops the phone and SMS tables and columns; run `go run ./cmd/migrate` after updating.
@@ -230,13 +255,10 @@ Text message (SMS, Twilio) alerts and phone verification were built and then del
 Reviewed 2026-11-20 against REQUIREMENTS.md, SECURITY.md, ARCHITECTURE.md, and DESIGN.md. In priority order:
 
 1. **Story summaries and summary search (FR-4.12, FR-5.2, FR-5.5)**, only where the content rule permits (verbatim excerpt only for Securelist, per FR-8.9). Conditional-license sources require per-story review before their excerpts can be stored or shown; that workflow is not yet implemented. Must read content only through the content-rights gate (`internal/contentrights`).
-2. **Attribution on every surface (FR-8.5, FR-8.11, FR-8.12).** Source notices are rendered only with the selected stories, so an empty alert carries none. HIBP credit and the SANS licence mark should be explicit per surface.
-3. **Migration safety.** The migrator does not refuse a database that is newer than the binary (`internal/store/postgres/migrate.go`). Add a fail-closed check.
-4. **Backup and restore.** No documented procedure for the single local PostgreSQL database and the data key (losing the key makes stored Slack webhooks unreadable). Document a schedule, protected storage, and a restore test.
-5. **Dashboard design gaps (DESIGN.md).** Times use the browser time zone, not the saved alert time zone; account deletion uses `window.prompt` instead of a dialog; no two-minute idle-timeout warning with "Stay signed in"; related-story links do not show the destination domain; no risk count bar.
-6. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
-7. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
-8. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
+2. **Dashboard design gaps (DESIGN.md).** Times use the browser time zone, not the saved alert time zone; account deletion uses `window.prompt` instead of a dialog; no two-minute idle-timeout warning with "Stay signed in"; related-story links do not show the destination domain; no risk count bar.
+3. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
+4. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
+5. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
 
 **Known unverified:**
 - Slack: only tested against fake local servers and one real test message; message formatting, long titles, and rate limiting on a real workspace are unchecked.

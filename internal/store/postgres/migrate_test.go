@@ -52,3 +52,13 @@ func TestCCCSAtomFeedMigrationAvoidsRedirects(t *testing.T) {
 		t.Error("migration must not use redirecting or insecure URLs")
 	}
 }
+
+func TestSchemaNewerThanBinaryIsRefused(t *testing.T) {
+	known := migrations[len(migrations)-1].version
+	if err := checkSchemaNotNewer(known); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSchemaNotNewer(known + 1); err == nil {
+		t.Fatal("expected a newer schema to be refused")
+	}
+}

@@ -114,3 +114,26 @@ func TestSlackPayloadStartsWithLogoImageBlock(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryAlertCarriesSourceNotices(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	settings := Settings{TimeZone: "UTC", MinimumRisk: "Low"}
+	story := Story{Title: "A", URL: "https://example.org/a", Sources: []string{"X"}, Risk: "Low", Sentiment: "Neutral"}
+	for _, stories := range [][]Story{nil, {story}} {
+		message, err := Render(stories, settings, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		slack, err := RenderSlack(stories, settings, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, got := range map[string]string{"text": message.Text, "html": message.HTML, "slack": slack} {
+			for _, want := range []string{"haveibeenpwned.com", "CC BY-NC-SA 4.0"} {
+				if !strings.Contains(got, want) {
+					t.Fatalf("%s alert with %d stories missing %q", name, len(stories), want)
+				}
+			}
+		}
+	}
+}
