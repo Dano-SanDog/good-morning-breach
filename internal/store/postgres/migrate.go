@@ -120,6 +120,14 @@ var migrations = []migration{
 	{version: 25, sql: contentRightsMigration},
 }
 
+// checkSchemaNotNewer refuses a database migrated by a newer binary (fail closed).
+func checkSchemaNotNewer(newest int) error {
+	if known := migrations[len(migrations)-1].version; newest > known {
+		return fmt.Errorf("database schema version %d is newer than this binary supports (%d); upgrade the binary or restore a matching backup", newest, known)
+	}
+	return nil
+}
+
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	migrationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -144,6 +152,13 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 
 	if _, err := tx.Exec(migrationCtx, `SELECT pg_advisory_xact_lock($1)`, migrationLockID); err != nil {
 		return fmt.Errorf("lock migrations: %w", err)
+	}
+	var newest int
+	if err := tx.QueryRow(migrationCtx, `SELECT COALESCE(max(version), 0) FROM schema_migrations`).Scan(&newest); err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+	if err := checkSchemaNotNewer(newest); err != nil {
+		return err
 	}
 	for _, current := range migrations {
 		var applied bool
