@@ -201,14 +201,15 @@ func (s *Store) CompleteCollection(ctx context.Context, source ingest.Source, ru
 
 	for _, item := range items {
 		var storyID int64
-		err := tx.QueryRow(queryCtx, `INSERT INTO stories (canonical_url, title, published_at)
-			VALUES ($1, $2, $3)
+		err := tx.QueryRow(queryCtx, `INSERT INTO stories (canonical_url, title, published_at, excerpt)
+			VALUES ($1, $2, $3, NULLIF($4, ''))
 			ON CONFLICT (canonical_url) DO UPDATE SET
 				title = EXCLUDED.title,
+				excerpt = COALESCE(EXCLUDED.excerpt, stories.excerpt),
 				published_at = COALESCE(EXCLUDED.published_at, stories.published_at),
 				updated_at = clock_timestamp()
 			RETURNING id`,
-			item.CanonicalURL, item.Title, item.PublishedAt,
+			item.CanonicalURL, item.Title, item.PublishedAt, item.Excerpt,
 		).Scan(&storyID)
 		if err != nil {
 			return 0, fmt.Errorf("upsert story: %w", err)

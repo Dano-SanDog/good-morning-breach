@@ -938,3 +938,35 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 }
+
+.risk-count-bar {
+  display: flex;
+  gap: 2px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.risk-count {
+  min-width: 72px;
+  padding: 6px 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.risk-count.risk-critical { background: #a3142e; }
+.risk-count.risk-high { background: #a8420a; }
+.risk-count.risk-medium { background: #7a5b00; }
+.risk-count.risk-low { background: #2c6a47; }
+.risk-count.risk-informational { background: #4b5574; }
+
+.story-domain {
+  color: #4e4a6b;
+  font-size: 14px;
+}
+
+.story-summary {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}

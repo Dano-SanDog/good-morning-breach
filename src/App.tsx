@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import "./styles.css";
 import logo from "./assets/logo.png";
 import { CatalogAdmin } from "./CatalogAdmin";
+import { ConfirmDeleteDialog, IdleWarningDialog, RiskCountBar, formatInZone } from "./DashboardParts";
 
 type User = { email: string; role: "admin" | "user" };
 type ManagedAccount = {
@@ -59,6 +60,7 @@ type Story = {
   id: number;
   title: string;
   url: string;
+  excerpt: string;
   sources: string[];
   attributions: string[];
   publishedAt: string | null;
@@ -168,6 +170,7 @@ export function parseStories(value: unknown): Story[] | null {
       typeof item.id !== "number" ||
       typeof item.title !== "string" ||
       typeof item.url !== "string" ||
+      (item.excerpt !== undefined && typeof item.excerpt !== "string") ||
       !isStringArray(item.sources) ||
       !isStringArray(item.attributions) ||
       !isStringArray(item.categories) ||
@@ -187,6 +190,7 @@ export function parseStories(value: unknown): Story[] | null {
       id: item.id,
       title: item.title,
       url: item.url,
+      excerpt: typeof item.excerpt === "string" ? item.excerpt : "",
       sources: item.sources,
       attributions: item.attributions,
       publishedAt: item.publishedAt,
@@ -387,6 +391,10 @@ export function App() {
   const [adminAudit, setAdminAudit] = useState<AdminAuditRecord[]>([]);
   const [alertSettings, setAlertSettings] = useState<AlertSettings | null>(null);
   const [alertSaved, setAlertSaved] = useState(false);
+  const [idleWarning, setIdleWarning] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ManagedAccount | null>(null);
+  const [deleteTyped, setDeleteTyped] = useState("");
+  const sendActivityRef = useRef<(force?: boolean) => void>(() => undefined);
   const [channels, setChannels] = useState<ChannelView | null>(null);
   const [webhookInput, setWebhookInput] = useState("");
   const [replacingWebhook, setReplacingWebhook] = useState(false);
@@ -531,10 +539,15 @@ export function App() {
       return;
     }
     let lastActivitySentAt = 0;
+    let lastActivityAt = Date.now();
     let active = true;
-    const sendActivity = () => {
+    const sendActivity = (force = false) => {
       const now = Date.now();
-      if (now - lastActivitySentAt < 60_000) {
+      lastActivityAt = now;
+      if (!force) {
+        setIdleWarning(false);
+      }
+      if (!force && now - lastActivitySentAt < 60_000) {
         return;
       }
       lastActivitySentAt = now;
@@ -552,13 +565,33 @@ export function App() {
         }
       });
     };
+    sendActivityRef.current = (force) => {
+      setIdleWarning(false);
+      sendActivity(force ?? true);
+    };
     sendActivity();
-    window.addEventListener("pointermove", sendActivity);
-    window.addEventListener("keydown", sendActivity);
+    const onActivity = () => sendActivity();
+    window.addEventListener("pointermove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    // The server ends the session after 30 idle minutes; warn two minutes before.
+    const idleTimer = window.setInterval(() => {
+      const idle = Date.now() - lastActivityAt;
+      if (idle >= 28 * 60_000) {
+        setIdleWarning(true);
+      }
+      if (idle >= 30 * 60_000) {
+        setIdleWarning(false);
+        setUser(null);
+        setView("signin");
+        setMessage("Your sign-in expired. Please sign in again.");
+      }
+    }, 10_000);
     return () => {
       active = false;
-      window.removeEventListener("pointermove", sendActivity);
-      window.removeEventListener("keydown", sendActivity);
+      window.clearInterval(idleTimer);
+      sendActivityRef.current = () => undefined;
+      window.removeEventListener("pointermove", onActivity);
+      window.removeEventListener("keydown", onActivity);
     };
   }, [view]);
 
@@ -772,9 +805,6 @@ export function App() {
   }
 
   async function handleDeleteAccount(account: ManagedAccount) {
-    if (window.prompt(`Type ${account.email} to confirm account deletion.`) !== account.email) {
-      return;
-    }
     setBusy(true);
     setMessage("");
     try {
@@ -782,8 +812,12 @@ export function App() {
       if (!response.ok) {
         throw new Error(await responseError(response));
       }
+      setDeleteTarget(null);
+      setDeleteTyped("");
       await loadAdminData();
     } catch (error) {
+      setDeleteTarget(null);
+      setDeleteTyped("");
       setMessage(error instanceof Error ? error.message : "Could not delete the account.");
     } finally {
       setBusy(false);
@@ -910,6 +944,17 @@ export function App() {
           </button>
         </div>
       </header>
+      {idleWarning && <IdleWarningDialog onStay={() => sendActivityRef.current(true)} />}
+      {deleteTarget && (
+        <ConfirmDeleteDialog
+          email={deleteTarget.email}
+          typed={deleteTyped}
+          busy={busy}
+          onTyped={setDeleteTyped}
+          onCancel={() => { setDeleteTarget(null); setDeleteTyped(""); }}
+          onConfirm={() => void handleDeleteAccount(deleteTarget)}
+        />
+      )}
       <main className="dashboard-content">
         <div className="dashboard-heading">
           <div>
@@ -918,6 +963,7 @@ export function App() {
           </div>
           <span className="story-count">{stories.length} {stories.length === 1 ? "story" : "stories"} on this page</span>
         </div>
+        <RiskCountBar risks={stories.map((story) => story.risk)} />
         {message && <p className="message" role="alert">{message}</p>}
         <details className="alert-settings">
           <summary>Alert preferences</summary>
@@ -1041,6 +1087,7 @@ export function App() {
                       <span className="tag-chip attack-id" key={cve}>{cve}</span>
                     ))}
                   </div>
+                  {story.excerpt && <p className="story-summary">{story.excerpt}</p>}
                   {story.related.length > 0 && (
                     <details className="story-related">
                       <summary>Related: {story.related[0]?.cve}</summary>
@@ -1050,7 +1097,7 @@ export function App() {
                           return (
                             <li key={related.id}>
                               {relatedUrl ? (
-                                <a href={relatedUrl.href} target="_blank" rel="noopener noreferrer">{related.title}</a>
+                                <><a href={relatedUrl.href} target="_blank" rel="noopener noreferrer">{related.title}</a> <span className="story-domain">{relatedUrl.hostname}</span></>
                               ) : (
                                 related.title
                               )}
@@ -1069,7 +1116,7 @@ export function App() {
                       <dt>Published</dt>
                       <dd>
                         {story.publishedAt
-                          ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(story.publishedAt))
+                          ? formatInZone(story.publishedAt, alertSettings?.timeZone, { dateStyle: "medium", timeStyle: "short" })
                           : "Time unavailable"}
                       </dd>
                     </div>
@@ -1218,7 +1265,7 @@ export function App() {
                             type="button"
                             className="table-button danger-button"
                             disabled={busy || isCurrentAccount}
-                            onClick={() => void handleDeleteAccount(account)}
+                            onClick={() => { setDeleteTyped(""); setDeleteTarget(account); }}
                           >
                             Delete
                           </button>
@@ -1238,7 +1285,7 @@ export function App() {
                   <li key={record.id}>
                     <strong>{record.action.replaceAll("_", " ")}</strong>
                     <span>Actor #{record.actorAccountId}, target {record.targetKind && record.targetId ? `${record.targetKind} ${record.targetId}` : `#${record.targetAccountId ?? "none"}`}</span>
-                    <time dateTime={record.createdAt}>{new Date(record.createdAt).toLocaleString()}</time>
+                    <time dateTime={record.createdAt}>{formatInZone(record.createdAt, alertSettings?.timeZone, { dateStyle: "medium", timeStyle: "medium" })}</time>
                     <code>{record.details}</code>
                   </li>
                 ))}

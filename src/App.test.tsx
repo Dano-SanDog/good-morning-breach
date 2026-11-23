@@ -16,6 +16,7 @@ test("renders story titles as text and rejects unsafe external links", () => {
         id: 1,
         title: "<b>untrusted</b>",
         url: "javascript:alert(1)",
+        excerpt: "",
         sources: ["CERT-EU"],
         attributions: ["Source: CERT-EU"],
         publishedAt: null,

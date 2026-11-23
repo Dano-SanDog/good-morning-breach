@@ -44,7 +44,7 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 	}
 	defer pool.Close()
 	setup := []string{
-		`CREATE TEMP TABLE stories (id bigint PRIMARY KEY, title text, canonical_url text, published_at timestamptz, created_at timestamptz, risk text, sentiment text)`,
+		`CREATE TEMP TABLE stories (id bigint PRIMARY KEY, title text, canonical_url text, published_at timestamptz, created_at timestamptz, risk text, sentiment text, excerpt text)`,
 		`CREATE TEMP TABLE data_sources (id text PRIMARY KEY, name text, attribution text, enabled boolean, last_success_at timestamptz, last_failure_at timestamptz, last_failure_cause text, content_policy text DEFAULT 'headline_link', rights_class text DEFAULT 'licensed')`,
 		`CREATE TEMP TABLE story_sources (story_id bigint, source_id text)`,
 		`CREATE TEMP TABLE categories (id text PRIMARY KEY, name text)`,
@@ -65,6 +65,10 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 				  'https://example.test/' || n, now() - interval '1 hour', now(), 'High', 'Neutral' FROM generate_series(1,105) n`,
 		`INSERT INTO story_sources SELECT n, 'a' FROM generate_series(1,105) n`,
 		`INSERT INTO story_sources VALUES (1, 'b')`,
+		`INSERT INTO data_sources (id, name, attribution, enabled, content_policy) VALUES ('c', 'Feed C', 'C notice', false, 'verbatim_excerpt')`,
+		`DELETE FROM story_sources WHERE story_id = 3`,
+		`INSERT INTO story_sources VALUES (3, 'c')`,
+		`UPDATE stories SET excerpt = 'zebra crossing text' WHERE id IN (3, 4)`,
 		`INSERT INTO categories VALUES ('one', 'Vulnerability'), ('two', 'Other')`,
 		`INSERT INTO story_categories SELECT n, 'one' FROM generate_series(1,105) n`,
 		`INSERT INTO story_categories VALUES (1, 'two')`,
@@ -128,7 +132,7 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(statuses) != 2 || statuses[0].FailingSince == nil || statuses[1].FailingSince != nil {
+	if len(statuses) != 3 || statuses[0].FailingSince == nil || statuses[1].FailingSince != nil {
 		t.Fatalf("unexpected failure streaks: %+v", statuses)
 	}
 	if age := time.Since(*statuses[0].FailingSince); age < 25*time.Hour || age > 27*time.Hour {
@@ -142,6 +146,15 @@ func TestDashboardQueriesWithPostgres(t *testing.T) {
 	alpha, err := store.ListStories(ctx, identity.StoryFilter{After: time.Now().Add(-24 * time.Hour), Search: "alpha"})
 	if err != nil || len(alpha) != 1 {
 		t.Fatalf("alpha search: %+v, error %v", alpha, err)
+	}
+	zebra, err := store.ListStories(ctx, identity.StoryFilter{After: time.Now().Add(-24 * time.Hour), Search: "zebra"})
+	if err != nil || len(zebra) != 1 || zebra[0].ID != 3 || zebra[0].Excerpt != "zebra crossing text" {
+		t.Fatalf("excerpt search must match only the story whose sources permit excerpts: %+v, error %v", zebra, err)
+	}
+	for _, story := range stories {
+		if story.ID == 4 && story.Excerpt != "" {
+			t.Fatal("headline-only story leaked its excerpt")
+		}
 	}
 	withCVE := &alpha[0]
 	if len(withCVE.CVEs) != 2 || withCVE.Related[0].ID == withCVE.Related[1].ID || len(withCVE.Related) != 2 || withCVE.Related[0].CVE != "CVE-2026-1111" {

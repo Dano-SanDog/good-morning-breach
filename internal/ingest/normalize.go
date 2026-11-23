@@ -18,6 +18,24 @@ func normalizeTitle(input string) string {
 
 // normalizeTitleChecked also reports whether the title was cut at the length cap.
 func normalizeTitleChecked(input string) (string, bool) {
+	return normalizeText(input, maxTitleRunes)
+}
+
+const maxExcerptRunes = 400
+
+// normalizeExcerpt returns plain text cut at a word boundary, with an ellipsis when shortened.
+func normalizeExcerpt(input string) string {
+	text, truncated := normalizeText(input, maxExcerptRunes)
+	if truncated {
+		if i := strings.LastIndexByte(text, ' '); i > maxExcerptRunes/2 {
+			text = text[:i]
+		}
+		text += "…"
+	}
+	return text
+}
+
+func normalizeText(input string, maxRunes int) (string, bool) {
 	tokenizer := html.NewTokenizer(strings.NewReader(html.UnescapeString(input)))
 	var output strings.Builder
 	runeCount := 0
@@ -41,7 +59,7 @@ func normalizeTitleChecked(input string) (string, bool) {
 				if unicode.IsControl(char) {
 					continue
 				}
-				if runeCount >= maxTitleRunes {
+				if runeCount >= maxRunes {
 					if unicode.IsSpace(char) {
 						continue
 					}

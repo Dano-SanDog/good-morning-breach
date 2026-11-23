@@ -85,6 +85,9 @@ var removeSMSMigration string
 //go:embed migrations/025_content_rights.sql
 var contentRightsMigration string
 
+//go:embed migrations/026_story_excerpts.sql
+var storyExcerptsMigration string
+
 const migrationLockID int64 = 0x47424d
 
 type migration struct {
@@ -118,6 +121,7 @@ var migrations = []migration{
 	{version: 23, sql: smsAlertsMigration},
 	{version: 24, sql: removeSMSMigration},
 	{version: 25, sql: contentRightsMigration},
+	{version: 26, sql: storyExcerptsMigration},
 }
 
 // checkSchemaNotNewer refuses a database migrated by a newer binary (fail closed).

@@ -160,7 +160,7 @@ func (c *Collector) collectSource(parentCtx context.Context, source Source) (Res
 		if failure != "" {
 			return fail(failure)
 		}
-		items, skipped = normalizeItems(feed, source.CompleteTitles)
+		items, skipped = normalizeItems(feed, source.CompleteTitles, source.storesExcerpt())
 		received = len(feed.Items)
 	}
 	// Items older than the retention window would be re-created with a fresh
@@ -254,7 +254,7 @@ func (c *Collector) fetchURL(ctx context.Context, address, accept, mediaSubstrin
 	return body, ""
 }
 
-func normalizeItems(feed *gofeed.Feed, completeTitles bool) ([]Item, int) {
+func normalizeItems(feed *gofeed.Feed, completeTitles, withExcerpt bool) ([]Item, int) {
 	items := make([]Item, 0, len(feed.Items))
 	seen := make(map[string]struct{}, len(feed.Items))
 	skipped := 0
@@ -281,6 +281,9 @@ func normalizeItems(feed *gofeed.Feed, completeTitles bool) ([]Item, int) {
 		seen[link] = struct{}{}
 
 		item := Item{Title: title, CanonicalURL: link}
+		if withExcerpt {
+			item.Excerpt = normalizeExcerpt(feedItem.Description)
+		}
 		if feedItem.PublishedParsed != nil {
 			publishedAt := feedItem.PublishedParsed.UTC()
 			item.PublishedAt = &publishedAt

@@ -144,3 +144,15 @@ func (a Allowance) Gate(raw Raw) Content {
 func Gate(raw Raw, sources []Source) Content {
 	return Resolve(sources).Gate(raw)
 }
+
+// ExcerptPolicies lists the content policies whose licensed sources permit an
+// excerpt, so SQL search over excerpt text agrees with Gate.
+func ExcerptPolicies() []string {
+	var out []string
+	for _, p := range []string{PolicyFullText, PolicyVerbatimExcerpt, PolicySystemSummary, PolicyHeadlineLink} {
+		if permits(Source{Policy: p, Rights: RightsLicensed}).Excerpt {
+			out = append(out, p)
+		}
+	}
+	return out
+}
