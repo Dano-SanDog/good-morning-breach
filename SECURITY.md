@@ -317,7 +317,7 @@ All retrieved 2026-11-13.
 - **Rule:**
   - No secret MAY be placed in a `VITE_`-prefixed variable, and `envPrefix` MUST NOT be changed.
   - `build.sourcemap` MUST stay `false` for the embedded build.
-  - The Vite dev server MUST keep `server.host` set to `localhost` and the default `server.fs` settings, MUST NOT set `allowedHosts: true`, and MUST NOT set `server.cors: true`.
+  - The Vite dev server MUST keep `server.host` set to `localhost` and `server.fs.strict` explicitly `true` (the default), MUST NOT set `allowedHosts: true`, and MUST NOT set `server.cors: true`.
 - **Enforcement:** `vite.config.ts`; review.
 - **Evidence:** S-20, S-21, S-22.
 - **Verification:**
