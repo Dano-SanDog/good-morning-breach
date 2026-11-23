@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"github.com/Dano-SanDog/good-morning-breach/internal/catalog"
 	"github.com/jackc/pgx/v5"
@@ -209,6 +210,63 @@ func (s *CatalogStore) DeleteSource(ctx context.Context, actorID int64, id strin
 			return catalog.ErrNotFound
 		}
 		return insertCatalogAudit(ctx, tx, actorID, "source_deleted", "source", id, map[string]any{})
+	}))
+}
+
+func (s *CatalogStore) ListReviewStories(ctx context.Context) ([]catalog.ReviewStory, error) {
+	ctx, cancel := databaseContext(ctx)
+	defer cancel()
+	rows, err := s.pool.Query(ctx, `SELECT stories.id, stories.title, stories.canonical_url, stories.excerpt,
+			array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
+			COALESCE(stories.published_at, stories.created_at), stories.excerpt_approved_at
+		FROM stories
+		JOIN story_sources ON story_sources.story_id = stories.id
+		JOIN data_sources ON data_sources.id = story_sources.source_id
+		WHERE stories.excerpt IS NOT NULL AND stories.excerpt <> ''
+		AND EXISTS (SELECT 1 FROM story_sources ss JOIN data_sources ds ON ds.id = ss.source_id
+			WHERE ss.story_id = stories.id AND ds.rights_class = 'conditional')
+		GROUP BY stories.id
+		ORDER BY (stories.excerpt_approved_at IS NOT NULL), COALESCE(stories.published_at, stories.created_at) DESC, stories.id DESC
+		LIMIT 100`)
+	if err != nil {
+		return nil, fmt.Errorf("query stories for review: %w", err)
+	}
+	defer rows.Close()
+	out := []catalog.ReviewStory{}
+	for rows.Next() {
+		// Admin-only pre-gate view: the excerpt is shown so it can be approved.
+		var item catalog.ReviewStory
+		if err := rows.Scan(&item.ID, &item.Title, &item.URL, &item.Candidate, &item.Sources, &item.PublishedAt, &item.ApprovedAt); err != nil {
+			return nil, fmt.Errorf("scan story for review: %w", err)
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
+}
+
+func (s *CatalogStore) SetExcerptApproval(ctx context.Context, actorID, storyID int64, approved bool) error {
+	ctx, cancel := databaseContext(ctx)
+	defer cancel()
+	return mapCatalogError(s.inTx(ctx, func(tx pgx.Tx) error {
+		action := "story_excerpt_revoked"
+		query := `UPDATE stories SET excerpt_approved_at = NULL, excerpt_approved_by = NULL WHERE id = $1`
+		args := []any{storyID}
+		if approved {
+			action = "story_excerpt_approved"
+			query = `UPDATE stories SET excerpt_approved_at = now(), excerpt_approved_by = $2 WHERE id = $1`
+			args = append(args, actorID)
+		}
+		// Only a story with a stored excerpt from a conditional source can be reviewed.
+		tag, err := tx.Exec(ctx, query+` AND excerpt IS NOT NULL AND excerpt <> ''
+			AND EXISTS (SELECT 1 FROM story_sources ss JOIN data_sources ds ON ds.id = ss.source_id
+				WHERE ss.story_id = stories.id AND ds.rights_class = 'conditional')`, args...)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return catalog.ErrNotFound
+		}
+		return insertCatalogAudit(ctx, tx, actorID, action, "story", strconv.FormatInt(storyID, 10), map[string]any{})
 	}))
 }
 

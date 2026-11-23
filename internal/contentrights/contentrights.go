@@ -22,12 +22,18 @@ const (
 const (
 	RightsLicensed          = "licensed"
 	RightsAllRightsReserved = "all_rights_reserved"
+	// RightsConditional marks a licensed source whose license permits excerpts only
+	// after an admin reviews each story (FR-8.8). No approval means no excerpt.
+	RightsConditional = "conditional"
 )
 
 // Source is the rights record of one data source.
 type Source struct {
 	Policy string `json:"policy"`
 	Rights string `json:"rights"`
+	// Approved says an admin approved this story's excerpt. It matters only for
+	// conditional sources.
+	Approved bool `json:"approved,omitempty"`
 }
 
 // ValidPolicy reports whether policy is a known content policy.
@@ -41,7 +47,7 @@ func ValidPolicy(policy string) bool {
 
 // ValidRights reports whether rights is a known rights class.
 func ValidRights(rights string) bool {
-	return rights == RightsLicensed || rights == RightsAllRightsReserved
+	return rights == RightsLicensed || rights == RightsConditional || rights == RightsAllRightsReserved
 }
 
 // ValidateSource enforces the invariants of one source record: both values are
@@ -71,6 +77,9 @@ type Allowance struct {
 // changes (FR-8.9).
 func permits(s Source) Allowance {
 	if ValidateSource(s) != nil || s.Rights == RightsAllRightsReserved {
+		return Allowance{}
+	}
+	if s.Rights == RightsConditional && !s.Approved {
 		return Allowance{}
 	}
 	switch s.Policy {
@@ -143,6 +152,19 @@ func (a Allowance) Gate(raw Raw) Content {
 // Gate resolves the sources and gates raw in one step.
 func Gate(raw Raw, sources []Source) Content {
 	return Resolve(sources).Gate(raw)
+}
+
+// NeedsReview reports whether a source's excerpts need per-story admin approval.
+func NeedsReview(s Source) bool {
+	return ValidateSource(s) == nil && s.Rights == RightsConditional
+}
+
+// MayHoldExcerpt reports whether a story from this source may have an excerpt
+// stored at all: licensed sources whose policy permits one, and conditional
+// sources whose policy would permit one once the story is approved.
+func MayHoldExcerpt(s Source) bool {
+	s.Approved = true
+	return permits(s).Excerpt
 }
 
 // ExcerptPolicies lists the content policies whose licensed sources permit an

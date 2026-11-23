@@ -941,6 +941,7 @@ button:disabled {
 
 .risk-count-bar {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin: 0 0 16px;
   padding: 0;
@@ -948,7 +949,7 @@ button:disabled {
 }
 
 .risk-count {
-  min-width: 72px;
+  min-width: min-content;
   padding: 6px 8px;
   color: #fff;
   font-size: 13px;
@@ -969,4 +970,30 @@ button:disabled {
 .story-summary {
   margin: 8px 0 0;
   overflow-wrap: anywhere;
+}
+
+.review-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.review-item {
+  border-top: 1px solid var(--hairline, #D9D7E5);
+  padding: 16px 0;
+  overflow-wrap: anywhere;
+}
+
+.review-title a {
+  color: #2e2a8c;
+}
+
+.review-title {
+  font-size: 18px;
+  margin: 0 0 4px;
+}
+
+.review-excerpt {
+  margin: 8px 0;
+  max-width: 75ch;
 }

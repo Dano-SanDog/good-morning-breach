@@ -93,6 +93,41 @@ type Store interface {
 	CreateSource(ctx context.Context, actorID int64, source Source) (Source, error)
 	UpdateSource(ctx context.Context, actorID int64, source Source) error
 	DeleteSource(ctx context.Context, actorID int64, id string) error
+	ListReviewStories(context.Context) ([]ReviewStory, error)
+	SetExcerptApproval(ctx context.Context, actorID, storyID int64, approved bool) error
+}
+
+// ReviewStory is a story from a conditional-license source with a stored excerpt.
+// The excerpt is shown here only so an admin can decide; it is not shown on the
+// dashboard or in alerts until the story is approved (FR-8.8).
+type ReviewStory struct {
+	ID          int64      `json:"id"`
+	Title       string     `json:"title"`
+	URL         string     `json:"url"`
+	Candidate   string     `json:"excerpt"`
+	Sources     []string   `json:"sources"`
+	PublishedAt time.Time  `json:"publishedAt"`
+	ApprovedAt  *time.Time `json:"approvedAt"`
+}
+
+func (s *Service) ListReviewStories(ctx context.Context, token string) ([]ReviewStory, error) {
+	if _, err := s.auth.RequireAdmin(ctx, token); err != nil {
+		return nil, err
+	}
+	return s.store.ListReviewStories(ctx)
+}
+
+// SetExcerptApproval approves or revokes the excerpt of one story. The store
+// writes the audit row in the same transaction (FR-8.8, FR-9.6).
+func (s *Service) SetExcerptApproval(ctx context.Context, token string, storyID int64, approved bool) error {
+	admin, err := s.auth.RequireAdmin(ctx, token)
+	if err != nil {
+		return err
+	}
+	if storyID <= 0 {
+		return ErrNotFound
+	}
+	return s.store.SetExcerptApproval(ctx, admin.AccountID, storyID, approved)
 }
 
 type Authorizer interface {

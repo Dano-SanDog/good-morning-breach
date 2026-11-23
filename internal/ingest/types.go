@@ -81,7 +81,7 @@ func (s Source) storesExcerpt() bool {
 	if rights == "" {
 		rights = contentrights.RightsLicensed
 	}
-	return contentrights.Resolve([]contentrights.Source{{Policy: string(s.ContentPolicy), Rights: rights}}).Excerpt
+	return contentrights.MayHoldExcerpt(contentrights.Source{Policy: string(s.ContentPolicy), Rights: rights})
 }
 
 func isHTTPSURL(raw string) bool {
