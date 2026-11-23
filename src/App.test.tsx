@@ -2,6 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, test } from "vitest";
 import { CatalogAdmin, hasLicenceRecord, parseCatalogCategories, parseCatalogSources, sourceRequestBody } from "./CatalogAdmin";
+import { IdleWarningDialog, RiskCountBar, formatInZone } from "./DashboardParts";
 import { App, DashboardNotices, ExternalStoryLink, getSafeExternalURL, parseAlertSettings, parseChannelView, parseResetToken, parseSourceStatuses, parseStories, storyFilterQuery } from "./App";
 
 test("renders the application title", () => {
@@ -207,4 +208,28 @@ test("validates channel settings received from the server", () => {
   expect(parseChannelView(good)).toEqual(good);
   expect(parseChannelView({ ...good, slackWebhookSaved: "yes" })).toBeNull();
   expect(parseChannelView(null)).toBeNull();
+});
+
+test("formats times in the saved time zone and falls back for an invalid zone", () => {
+  const opts: Intl.DateTimeFormatOptions = { timeZone: undefined, hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  const instant = "2026-11-23T12:00:00Z";
+  expect(formatInZone(instant, "Asia/Tokyo", opts)).toBe("21:00");
+  expect(formatInZone(instant, "America/Los_Angeles", opts)).toBe("04:00");
+  expect(() => formatInZone(instant, "Mars/Base", opts)).not.toThrow();
+});
+
+test("risk count bar orders by severity, counts per level, and hides when empty", () => {
+  const markup = renderToStaticMarkup(createElement(RiskCountBar, { risks: ["Low", "Critical", "Low", "High"] }));
+  expect(markup.indexOf("1 Critical")).toBeGreaterThan(-1);
+  expect(markup.indexOf("1 Critical")).toBeLessThan(markup.indexOf("1 High"));
+  expect(markup.indexOf("1 High")).toBeLessThan(markup.indexOf("2 Low"));
+  expect(markup).not.toContain("Medium");
+  expect(renderToStaticMarkup(createElement(RiskCountBar, { risks: [] }))).toBe("");
+});
+
+test("idle warning dialog announces the sign-out and offers to stay signed in", () => {
+  const markup = renderToStaticMarkup(createElement(IdleWarningDialog, { onStay: () => {} }));
+  expect(markup).toContain('role="alertdialog"');
+  expect(markup).toContain("Stay signed in");
+  expect(markup).toContain("about two minutes");
 });

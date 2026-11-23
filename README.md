@@ -252,15 +252,27 @@ Text message (SMS, Twilio) alerts and phone verification were built and then del
 - [x] Add alert delivery (scheduled delivery with retries; email and Slack channels)
 - [x] Retention job, password reset, admin audit log
 
+### Alerts on a sleeping Mac
+
+Alerts need the Mac awake with the server running (NFR-4.1 accepts this). The scheduler sends an alert up to 2 hours late, so a Mac that wakes shortly after 07:00 still sends it. To have the Mac wake itself before 07:00, schedule a repeating wake (free, built in; needs admin rights):
+
+```sh
+sudo pmset repeat wakeorpoweron MTWRFSU 06:55:00
+pmset -g sched   # verify
+sudo pmset repeat cancel   # remove
+```
+
+A wake from sleep with the lid closed works on power; on battery macOS may skip it. Keep the server running (for example, started at login), and leave Power Nap or "Wake for network access" enabled if the Mac must reach the network while the display is off. The hourly collection LaunchAgent also catches up on its next run after wake.
+
 ### Remaining work
 
 Reviewed 2026-11-20 against REQUIREMENTS.md, SECURITY.md, ARCHITECTURE.md, and DESIGN.md. In priority order:
 
 1. **Conditional-license per-story review (FR-8.8).** Sources with conditional licenses need per-story review before their excerpts can be stored or shown; that workflow is not yet implemented. Excerpts and excerpt search are done; no generated summaries exist (FR-8.9).
 2. **Dashboard design follow-ups.** Done: saved-time-zone times, confirmation dialog, idle warning, risk count bar (current page only), related-link domains. Not visually checked at 390 px and 1440 px.
-3. **Test gaps.** Client tests do not cover the footer notices, timeout behaviour, or time-zone formatting; `cmd/*` have no tests; the alert query ordering for stories with no publication date (FR-4.11) is not specified.
-4. **Operations.** `govulncheck` is not installed in this environment, so the Go vulnerability gate (SC-092) was not re-run on 2026-11-20; run it before the next release. Alerts need the machine awake at the scheduled time (NFR-4.1 accepts this).
-5. **Housekeeping.** Remove unused TOTP-era identifiers (migration 010 and 019 names, the unused `account_totp_reset` audit action) only with a careful migration plan; SC-043 wording versus the explicit `server.fs.strict` in `vite.config.mjs`.
+3. **Test gaps.** Done: client tests now cover the footer notices, time-zone formatting (`formatInZone`), the risk count bar, and the idle-warning dialog. The alert story order is defined: risk first, then `COALESCE(published_at, created_at)` newest first, so stories with no publication date sort by collection time (FR-4.11). Still open: the 30-minute idle timeout timer in `App` is not unit-tested, and `cmd/*` have no tests.
+4. **Operations.** Done: `govulncheck ./...` (v1.10.0, via `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`) reported no vulnerabilities on 2026-11-23 (SC-092). Re-run it before each release. A sleeping Mac is documented under "Alerts on a sleeping Mac" below; it is still not measured on real hardware.
+5. **Housekeeping.** Done: SECURITY.md SC-043 now says `server.fs.strict` is explicitly `true`, matching `vite.config.mjs`. Deferred on purpose: removing the unused TOTP-era identifiers (migration 010 and 019 names, the `account_totp_reset` audit action), because renaming applied migrations or tightening the audit CHECK risks breaking existing databases; it needs its own migration plan.
 
 **Known unverified:**
 - Slack: only tested against fake local servers and one real test message; message formatting, long titles, and rate limiting on a real workspace are unchecked.
