@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import "./styles.css";
-import logo from "../logo.svg";
+import logo from "./assets/logo.png";
 import { CatalogAdmin } from "./CatalogAdmin";
 
 type User = { email: string; role: "admin" | "user" };
@@ -798,7 +798,7 @@ export function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel" aria-labelledby="reset-heading">
-          <img className="brand-mark" src={logo} alt="" />
+          <img className="brand-mark" src={logo} width="720" height="270" alt="Good Morning Breach" />
           <h1 id="reset-heading">Choose a new password</h1>
           <p className="muted">Use at least 12 characters.</p>
           <form onSubmit={handleResetPassword}>
@@ -827,7 +827,7 @@ export function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel" aria-labelledby="forgot-heading">
-          <img className="brand-mark" src={logo} alt="" />
+          <img className="brand-mark" src={logo} width="720" height="270" alt="Good Morning Breach" />
           <h1 id="forgot-heading">Reset your password</h1>
           <p className="muted">We will email a link that works for 30 minutes.</p>
           <form onSubmit={handleForgot}>
@@ -858,7 +858,7 @@ export function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel" aria-labelledby="signin-heading">
-          <img className="brand-mark" src={logo} alt="" />
+          <img className="brand-mark" src={logo} width="720" height="270" alt="Good Morning Breach" />
           <h1 id="signin-heading">Good Morning Breach</h1>
           <p className="muted">Sign in to your private security briefing.</p>
           <form onSubmit={handlePasswordLogin}>
@@ -900,8 +900,7 @@ export function App() {
     <div className="dashboard-shell">
       <header className="account-bar">
         <div className="account-brand">
-          <img src={logo} alt="" />
-          <span>Good Morning Breach</span>
+          <img src={logo} width="720" height="270" alt="Good Morning Breach" />
         </div>
         <div className="account-controls">
           <span className="account-email">{user?.email}</span>

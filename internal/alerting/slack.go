@@ -83,9 +83,7 @@ func (c *SlackChannel) post(ctx context.Context, webhook, text string) error {
 	if err != nil {
 		return &DeliveryError{Cause: "saved Slack webhook is not valid"}
 	}
-	body, err := json.Marshal(struct {
-		Text string `json:"text"`
-	}{text})
+	body, err := json.Marshal(slackPayload(text))
 	if err != nil {
 		return err
 	}
@@ -186,4 +184,53 @@ func RenderSlack(stories []Story, settings Settings, now time.Time) (string, err
 		out.WriteString("\nTechnique tags: (c) 2026 The MITRE Corporation. This work is reproduced and distributed with the permission of The MITRE Corporation.\n")
 	}
 	return out.String(), nil
+}
+
+// SlackLogoURL is the public logo that Slack fetches for the image block.
+// Webhooks cannot upload files, so it relies on this repository staying public
+// and on the file existing on main.
+const SlackLogoURL = "https://raw.githubusercontent.com/Dano-SanDog/good-morning-breach/main/internal/alerting/assets/logo-email.png"
+
+type slackBlock struct {
+	Type     string        `json:"type"`
+	ImageURL string        `json:"image_url,omitempty"`
+	AltText  string        `json:"alt_text,omitempty"`
+	Text     *slackTextObj `json:"text,omitempty"`
+}
+
+type slackTextObj struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type slackBody struct {
+	Text   string       `json:"text"`
+	Blocks []slackBlock `json:"blocks"`
+}
+
+// slackPayload puts the logo first, then the message in section blocks (each
+// limited to 3000 characters by Slack). Text stays as the notification fallback.
+func slackPayload(text string) slackBody {
+	blocks := []slackBlock{{Type: "image", ImageURL: SlackLogoURL, AltText: "Good Morning Breach"}}
+	var chunk strings.Builder
+	flush := func() {
+		if strings.TrimSpace(chunk.String()) != "" {
+			blocks = append(blocks, slackBlock{Type: "section", Text: &slackTextObj{Type: "mrkdwn", Text: chunk.String()}})
+		}
+		chunk.Reset()
+	}
+	for _, line := range strings.SplitAfter(text, "\n") {
+		if len(line) > 2900 {
+			line = line[:2900]
+		}
+		if chunk.Len()+len(line) > 2900 {
+			flush()
+		}
+		chunk.WriteString(line)
+	}
+	flush()
+	if len(blocks) > 50 {
+		blocks = blocks[:50]
+	}
+	return slackBody{Text: text, Blocks: blocks}
 }

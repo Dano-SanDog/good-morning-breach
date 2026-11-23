@@ -263,7 +263,7 @@ All retrieved 2026-11-13.
 - **Rule:**
   - Email HTML bodies MUST be rendered with `html/template`. `text/template` and string concatenation MUST NOT be used for HTML.
   - Values MUST NOT be passed as `template.HTML`, `template.URL`, or similar trusted types.
-  - The email MUST contain no scripts, images, or remote resources, and MUST include a plain-text part.
+  - The email MUST contain no scripts or remote resources. The only image allowed is the embedded project logo, attached inline (CID, `multipart/related`). The email MUST include a plain-text part without the logo.
 - **Enforcement:** Alerting email renderer.
 - **Evidence:** NFR-3.4; DESIGN.md (email alert); ARCHITECTURE.md TB-2. The source is the `html/template` package documentation (contextual escaping), which was not separately fetched; the design rule is a project decision.
 - **Verification:** A story titled `<script>x</script>` appears escaped in the HTML part. A grep finds no `template.HTML(` in email code.
