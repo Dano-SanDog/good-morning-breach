@@ -158,6 +158,9 @@ func RenderSlack(stories []Story, settings Settings, now time.Time) (string, err
 		fmt.Fprintf(&out, "Source: %s. Published: %s. Tone: %s.\nCategories: %s\n",
 			slackText(strings.Join(story.Sources, ", "), 200), published, slackText(story.Sentiment, 20),
 			slackText(strings.Join(story.Categories, ", "), 200))
+		if story.Excerpt != "" {
+			fmt.Fprintf(&out, "%s\n", slackText(story.Excerpt, 500))
+		}
 		if cves := validCVEs(story.CVEs); len(cves) > 0 {
 			out.WriteString("CVE: " + strings.Join(cves, ", ") + "\n")
 		}

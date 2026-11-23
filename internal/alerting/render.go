@@ -40,6 +40,7 @@ type storyView struct {
 	Published    string
 	SourceList   string
 	CategoryList string
+	Preview      string
 	ChipColor    string
 	CVEList      string
 	Related      []relatedView
@@ -125,6 +126,7 @@ var htmlTemplate = template.Must(template.New("alert").Parse(`<!doctype html>
 <div style="font-size:18px;font-weight:600;margin:6px 0">{{if .Link.URL}}<a href="{{.Link.URL}}" style="color:#2E2A8C">{{.Link.Text}}</a>{{else}}{{.Link.Text}}{{end}}</div>
 <div style="font-size:14px;color:#4E4A6B">Source: {{.SourceList}}. Published: {{.Published}}. Tone: {{.Sentiment}}.</div>
 <div style="font-size:14px;color:#4E4A6B">Categories: {{.CategoryList}}</div>
+{{if .Preview}}<div style="font-size:14px">{{.Preview}}</div>{{end}}
 {{if .CVEList}}<div style="font-size:14px;color:#4E4A6B">CVE: {{.CVEList}}</div>{{end}}
 {{if .Techniques}}<div style="font-size:14px">ATT&amp;CK: {{range $i, $t := .Techniques}}{{if $i}}, {{end}}<a href="{{$t.URL}}" style="color:#2E2A8C">{{$t.ID}} {{$t.Name}}</a> ({{range $j, $tac := $t.Tactics}}{{if $j}}, {{end}}{{$tac}}{{end}}){{end}}</div>{{end}}
 {{if .Related}}<div style="font-size:14px;color:#4E4A6B">Related ({{range $i, $r := .Related}}{{if $i}}; {{end}}{{$r.CVE}}: {{if $r.Link.URL}}<a href="{{$r.Link.URL}}" style="color:#2E2A8C">{{$r.Link.Text}}</a>{{else}}{{$r.Link.Text}}{{end}}{{end}})</div>{{end}}
@@ -184,6 +186,7 @@ func Render(stories []Story, settings Settings, now time.Time) (Message, error) 
 			Published:    "unknown",
 			SourceList:   plainList(story.Sources, 100),
 			CategoryList: plainList(story.Categories, 60),
+			Preview:      plain(story.Excerpt, 500),
 			ChipColor:    chipColors[story.Risk],
 			CVEList:      strings.Join(validCVEs(story.CVEs), ", "),
 		}
@@ -204,6 +207,9 @@ func Render(stories []Story, settings Settings, now time.Time) (Message, error) 
 		}
 		fmt.Fprintf(&text, "Source: %s. Published: %s. Tone: %s.\nCategories: %s\n",
 			view.SourceList, view.Published, story.Sentiment, view.CategoryList)
+		if view.Preview != "" {
+			fmt.Fprintf(&text, "%s\n", view.Preview)
+		}
 		if view.CVEList != "" {
 			text.WriteString("CVE: " + view.CVEList + "\n")
 		}

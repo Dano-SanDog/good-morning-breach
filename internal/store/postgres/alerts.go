@@ -80,7 +80,7 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	rows, err := s.pool.Query(queryCtx, `SELECT
-		stories.id, stories.title, stories.canonical_url, stories.published_at,
+		stories.id, stories.title, stories.canonical_url, COALESCE(stories.excerpt, ''), stories.published_at,
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
 		jsonb_agg(DISTINCT jsonb_build_object('policy', data_sources.content_policy, 'rights', data_sources.rights_class)),
@@ -120,7 +120,7 @@ func (s *AlertStore) StoriesForAlert(ctx context.Context, risks []string, since,
 		var story alerting.Story
 		var techniquesJSON, rightsJSON []byte
 		var raw contentrights.Raw
-		if err := rows.Scan(&story.ID, &raw.Title, &raw.URL, &story.PublishedAt, &story.Sources, &story.Attributions,
+		if err := rows.Scan(&story.ID, &raw.Title, &raw.URL, &raw.Excerpt, &story.PublishedAt, &story.Sources, &story.Attributions,
 			&rightsJSON, &story.Risk, &story.Sentiment, &story.Categories, &techniquesJSON, &story.CVEs); err != nil {
 			return nil, fmt.Errorf("scan alert story: %w", err)
 		}

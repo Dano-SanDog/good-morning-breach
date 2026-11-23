@@ -74,6 +74,16 @@ func (s Source) Validate() error {
 	return contentrights.ValidateSource(contentrights.Source{Policy: string(s.ContentPolicy), Rights: rights})
 }
 
+// storesExcerpt reports whether the content-rights gate lets this source's
+// verbatim excerpt be stored. Other sources keep headline and link only.
+func (s Source) storesExcerpt() bool {
+	rights := s.RightsClass
+	if rights == "" {
+		rights = contentrights.RightsLicensed
+	}
+	return contentrights.Resolve([]contentrights.Source{{Policy: string(s.ContentPolicy), Rights: rights}}).Excerpt
+}
+
 func isHTTPSURL(raw string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	return err == nil &&
@@ -86,6 +96,7 @@ func isHTTPSURL(raw string) bool {
 type Item struct {
 	Title        string
 	CanonicalURL string
+	Excerpt      string // plain-text verbatim prefix; set only for sources whose rights permit it
 	PublishedAt  *time.Time
 }
 

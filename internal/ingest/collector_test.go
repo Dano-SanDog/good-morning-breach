@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mmcdole/gofeed"
 	"io"
 	"net/http"
 	"strings"
@@ -487,5 +488,19 @@ func TestCompleteTitlesSkipsOverlongItems(t *testing.T) {
 		if len(store.completed) != want {
 			t.Errorf("complete=%v saved %d items, want %d", complete, len(store.completed), want)
 		}
+	}
+}
+
+func TestExcerptsStoredOnlyWhereRightsPermit(t *testing.T) {
+	feed, err := gofeed.NewParser().ParseString(`<rss version="2.0"><channel><title>F</title><item><title>T</title>
+		<link>https://example.org/a</link><description>&lt;p&gt;Hello &lt;b&gt;world&lt;/b&gt;&lt;/p&gt;</description></item></channel></rss>`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withExcerpt, _ := normalizeItems(feed, false, Source{ContentPolicy: ContentVerbatimExcerpt}.storesExcerpt())
+	headlineOnly, _ := normalizeItems(feed, false, Source{ContentPolicy: ContentHeadlineLink}.storesExcerpt())
+	reserved, _ := normalizeItems(feed, false, Source{ContentPolicy: ContentFullText, RightsClass: "all_rights_reserved"}.storesExcerpt())
+	if withExcerpt[0].Excerpt != "Hello world" || headlineOnly[0].Excerpt != "" || reserved[0].Excerpt != "" {
+		t.Fatalf("excerpts = %q, %q, %q", withExcerpt[0].Excerpt, headlineOnly[0].Excerpt, reserved[0].Excerpt)
 	}
 }

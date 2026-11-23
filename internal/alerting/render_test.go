@@ -56,9 +56,8 @@ func TestRenderUnsafeLinksAndControlCharacters(t *testing.T) {
 	}
 }
 
-// Until a summary or excerpt is rendered through the gate (SC-023), no output
-// may carry them, even if a Story somehow holds them.
-func TestOutputsNeverEmitExcerptOrSummary(t *testing.T) {
+// Outputs render only the gated excerpt; no summary is ever generated or shown.
+func TestOutputsEmitExcerptButNeverSummary(t *testing.T) {
 	story := Story{Content: contentrights.Content{Title: "T", URL: "https://example.org/a", Excerpt: "SECRET-EXCERPT", Summary: "SECRET-SUMMARY"},
 		Sources: []string{"Example"}, Risk: "High", Categories: []string{"Malware"}}
 	settings := Settings{TimeZone: "UTC", MinimumRisk: "Medium"}
@@ -71,8 +70,8 @@ func TestOutputsNeverEmitExcerptOrSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	all := msg.HTML + msg.Text + slack
-	if strings.Contains(all, "SECRET-") {
-		t.Fatal("rendered output contains ungated content")
+	if strings.Contains(all, "SECRET-SUMMARY") || !strings.Contains(all, "SECRET-EXCERPT") {
+		t.Fatal("outputs must carry the excerpt and never the summary")
 	}
 }
 

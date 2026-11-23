@@ -505,7 +505,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 	queryCtx, cancel := databaseContext(ctx)
 	defer cancel()
 	rows, err := s.pool.Query(queryCtx, `SELECT
-		stories.id, stories.title, stories.canonical_url,
+		stories.id, stories.title, stories.canonical_url, COALESCE(stories.excerpt, ''),
 		COALESCE(stories.published_at, stories.created_at),
 		array_agg(DISTINCT data_sources.name ORDER BY data_sources.name),
 		array_agg(DISTINCT data_sources.attribution ORDER BY data_sources.attribution),
@@ -533,7 +533,13 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 		JOIN categories ON categories.id = story_categories.category_id
 		WHERE COALESCE(stories.published_at, stories.created_at) >= $1
 		AND ($2::timestamptz IS NULL OR COALESCE(stories.published_at, stories.created_at) < $2)
-		AND ($3 = '' OR to_tsvector('english', stories.title) @@ plainto_tsquery('english', $3))
+		AND ($3 = '' OR to_tsvector('english', stories.title) @@ plainto_tsquery('english', $3)
+			OR (stories.excerpt IS NOT NULL
+				AND to_tsvector('english', stories.excerpt) @@ plainto_tsquery('english', $3)
+				AND NOT EXISTS (SELECT 1 FROM story_sources ss
+					JOIN data_sources src ON src.id = ss.source_id
+					WHERE ss.story_id = stories.id
+					AND NOT (src.rights_class = 'licensed' AND src.content_policy = ANY($9)))))
 		AND ($4 = '' OR stories.risk = $4)
 		AND ($5 = '' OR EXISTS (SELECT 1 FROM story_categories sc
 			JOIN categories cat ON cat.id = sc.category_id
@@ -555,7 +561,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 		END,
 		COALESCE(stories.published_at, stories.created_at) DESC, stories.id DESC
 		LIMIT 101 OFFSET $8`, filter.After, filter.Before, filter.Search, filter.Risk,
-		filter.Category, filter.Source, filter.Attack, filter.Offset)
+		filter.Category, filter.Source, filter.Attack, filter.Offset, contentrights.ExcerptPolicies())
 	if err != nil {
 		return nil, fmt.Errorf("query recent stories: %w", err)
 	}
@@ -569,6 +575,7 @@ func (s *IdentityStore) ListStories(ctx context.Context, filter identity.StoryFi
 			&story.ID,
 			&raw.Title,
 			&raw.URL,
+			&raw.Excerpt,
 			&story.PublishedAt,
 			&story.Sources,
 			&story.Attributions,
