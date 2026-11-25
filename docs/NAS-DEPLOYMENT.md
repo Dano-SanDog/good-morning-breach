@@ -134,17 +134,23 @@ Do not expose the VM to the internet and do not buy certificates. Other devices 
 sudo sh -c 'umask 077; cat > /etc/gmb/server.env' <<'EOT'
 GB_TLS_CERT_FILE=/etc/gmb/tls/localhost.pem
 GB_TLS_KEY_FILE=/etc/gmb/tls/localhost-key.pem
-GB_SMTP_HOST=smtp.mail.me.com
+GB_SMTP_HOST=smtp.gmail.com
 GB_SMTP_PORT=587
 GB_SMTP_TLS=starttls
-GB_SMTP_USERNAME=you@icloud.com
-GB_SMTP_FROM=you@icloud.com
+GB_SMTP_USERNAME=sender@gmail.com
 GB_SMTP_PASSWORD_FILE=/etc/gmb/smtp-password
 EOT
 sudo chown gmb:gmb /etc/gmb/server.env
 ```
 
-Use the exact values you use on the Mac. `GB_SMTP_TLS` accepts `starttls` or `implicit`. The default database URL (`127.0.0.1`, role `gb_app`) is already correct, so `GB_DATABASE_URL` is not needed.
+Use a sender that differs from the account's sign-in (recipient) address: iCloud silently dropped mail sent from an iCloud address to itself, while Gmail (an App Password, which needs 2-Step Verification) delivered to iCloud correctly. Create the password file without leaving it in shell history or chat:
+
+```sh
+sudo sh -c 'umask 077; read -rs -p "App password: " p; printf "%s" "$p" > /etc/gmb/smtp-password'
+sudo chown gmb:gmb /etc/gmb/smtp-password
+```
+
+If an app password was ever exposed, revoke it in your Google Account (Security > App passwords) and create another. The systemd `EnvironmentFile` below keeps these settings across reboots and new terminals (shell exports do not persist, and email silently stays off without them). Placeholders above are not real addresses. `GB_SMTP_TLS` accepts `starttls` or `implicit`. The default database URL (`127.0.0.1`, role `gb_app`) is already correct, so `GB_DATABASE_URL` is not needed.
 
 `/etc/systemd/system/gmb-server.service`:
 
@@ -209,7 +215,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now gmb-server.service gmb-collect.timer
 systemctl status gmb-server --no-pager
 journalctl -u gmb-server -n 30 --no-pager
-sudo -u gmb env $(sudo cat /etc/gmb/server.env | xargs) gb-smtptest --verify-only   # checks SMTP login; add --to you@example.org to send a test
+sudo -u gmb env $(sudo cat /etc/gmb/server.env | xargs) gb-smtptest -verify-only   # checks SMTP login; use -to recipient@example.org to send a test
 ```
 
 `ProtectHome=true` keeps the unit from reading real home directories; `/var/lib/gmb` (with the data key, logs, and `.pgpass`) stays writable. If the server fails to start under these hardening options, loosen them one at a time and note it; this was not tested here.

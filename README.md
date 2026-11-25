@@ -192,8 +192,12 @@ The server runs the same connect-and-sign-in check in the background at startup 
 Typical settings (confirm each against the provider's current documentation; these were not tested against live accounts):
 
 - **Generic SMTP relay:** use the host, port, and credentials the relay gives you. Port 587 with `starttls`, or 465 with `implicit`.
-- **Gmail:** host `smtp.gmail.com`, port 587 (or 465 implicit). Turn on 2-Step Verification, create an app password, and put it in the password file. The username and sender are the full Gmail address.
+- **Gmail (recommended when your own address is an iCloud one):** `GB_SMTP_HOST=smtp.gmail.com`, `GB_SMTP_PORT=587`, `GB_SMTP_TLS=starttls`, `GB_SMTP_USERNAME=<your Gmail address>`, `GB_SMTP_PASSWORD_FILE` pointing to a `0600` file. Google App Passwords require 2-Step Verification: Google Account > Security > 2-Step Verification > App passwords; create one and enter it at the `read -rs` prompt above. If a password was ever pasted into a chat, terminal history, or file you did not intend, revoke it on that same page and create a new one. Delivery from Gmail to an iCloud inbox was observed to work.
 - **iCloud Mail:** host `smtp.mail.me.com`, port 587 `starttls`. Create an app-specific password at account.apple.com; the username is your iCloud address, and the sender must be that address or one of its aliases.
+
+**Use a sender that differs from the recipient.** The alert goes to each account's sign-in email, and the sender is the SMTP username. iCloud accepted mail sent from an iCloud address to itself (SMTP reported success) but silently dropped it, so self-sends through iCloud are unreliable. Prefer a different sending account (for example Gmail) than the address you sign in with.
+
+**Exports do not persist.** `export GB_SMTP_*` lasts only for that terminal. A server started from a new terminal without them has email silently off (password reset is disabled; only a startup warning is logged). Put the variables in a start script, or on the NAS use the systemd `EnvironmentFile` (see docs/NAS-DEPLOYMENT.md).
 
 If startup or `smtptest` reports a connection or TLS error, the port and `GB_SMTP_TLS` usually disagree; a sign-in error means a wrong username or password (use an app password where the provider requires one).
 
@@ -278,7 +282,7 @@ Reviewed 2026-11-20 against REQUIREMENTS.md, SECURITY.md, ARCHITECTURE.md, and D
 
 **Known unverified:**
 - Slack: only tested against fake local servers and one real test message; message formatting, long titles, and rate limiting on a real workspace are unchecked.
-- Email: real SMTP was verified with iCloud only; Gmail and generic relay settings are untested; spam placement is unknown.
+- Email: iCloud SMTP accepted self-sent mail but silently dropped it; Gmail (app password) sending to an iCloud recipient was observed to deliver. Generic relay settings are untested; spam placement is unknown.
 - The 07:00 alert on a sleeping machine, the NFR-2.3 dashboard timing at one year of stories, and the NFR-2.2 delivery timing under load have not been measured.
 - Source terms that the research could not confirm are listed in [reports/Licensed cyber news sources.md](reports/Licensed%20cyber%20news%20sources.md).
 
